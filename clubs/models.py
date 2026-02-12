@@ -42,3 +42,10 @@ class SubscriptionPlan(BaseModel):
 
     def __str__(self):
         return self.name
+
+
+class TenantBaseModel(BaseModel):
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, related_name='%(class)ss')
+
+    class Meta:
+        abstract = True
