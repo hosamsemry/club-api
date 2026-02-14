@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'clubs',
     'accounts',
+    'core',
 ]
 
 
