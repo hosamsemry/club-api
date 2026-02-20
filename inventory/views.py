@@ -6,7 +6,8 @@ from inventory.services.stock_service import StockService
 from core.permissions import RolePermission
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
-
+from rest_framework.filters import SearchFilter
+from django_filters.rest_framework import DjangoFilterBackend
 
 class StockMovementViewSet(TenantModelViewSet):
     queryset = StockMovement.objects.all()
@@ -49,8 +50,10 @@ class ProductViewSet(TenantModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ["category", "is_active"]
+    search_fields = ["name", "sku"]
 
-    # Optional: override perform_create to enforce stock validation
     def perform_create(self, serializer):
         product = serializer.save(club=self.request.user.club)
         if product.stock_quantity < 0:
