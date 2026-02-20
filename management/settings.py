@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'accounts',
     'core',
     'inventory',
+    'sales',
 ]
 
 
