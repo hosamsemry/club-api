@@ -1,23 +1,34 @@
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
+
 from inventory.models import Product, StockMovement
 
 
 class StockService:
+    @staticmethod
+    def _locked_product(*, product_id, club):
+        return Product.objects.select_for_update().get(pk=product_id, club=club)
 
     @staticmethod
     @transaction.atomic
-    def create_movement(*, product, movement_type, quantity, user, direction=None, note=""):
+    def create_movement(
+        *,
+        product,
+        movement_type,
+        quantity,
+        user,
+        direction=None,
+        note="",
+        lock_product=True,
+    ):
+
         if quantity <= 0:
             raise ValidationError("Quantity must be greater than zero.")
-        
-        product = Product.objects.select_for_update().get(pk=product.pk)
 
-        if product.stock_quantity < product.low_stock_threshold:
-            # Optional: Log low stock warning or notify users
-            pass
+        if lock_product:
+            product = StockService._locked_product(product_id=product.pk, club=product.club)
 
-        if movement_type == "restock" or movement_type == "refund":
+        if movement_type in ("restock", "refund"):
             delta = quantity
 
         elif movement_type == "sale":
@@ -32,7 +43,9 @@ class StockService:
             raise ValidationError("Invalid movement type.")
 
         if product.stock_quantity + delta < 0:
-            raise ValidationError({"detail": f"Insufficient stock. Available: {product.stock_quantity}"})
+            raise ValidationError(
+                {"detail": f"Insufficient stock. Available: {product.stock_quantity}"}
+            )
 
         movement = StockMovement.objects.create(
             club=product.club,
