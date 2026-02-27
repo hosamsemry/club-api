@@ -6,11 +6,19 @@ from sales.models import Sale
 from sales.serializers import SaleCreateSerializer, SaleReadSerializer
 from sales.services.sale_service import SaleService
 from rest_framework.decorators import action
+from .filters import SaleFilter
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import OrderingFilter, SearchFilter
 
 class SaleViewSet(TenantModelViewSet):
     queryset = Sale.objects.select_related("created_by").prefetch_related("items__product")
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
+    filter_backends = [DjangoFilterBackend, OrderingFilter, SearchFilter]
+    filterset_class = SaleFilter
+    ordering_fields = ["created_at", "total_amount", "status"]
+    ordering = ["-created_at"]
+    search_fields = ["created_by__email", "items__product__name", "items__product__sku"]
 
     def get_serializer_class(self):
         if self.action == "create":
