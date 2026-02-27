@@ -96,3 +96,46 @@ class SaleService:
         sale.save(update_fields=["total_amount"])
 
         return sale
+    
+    
+    @staticmethod
+    @transaction.atomic
+    def refund_sale(*, club, user, sale_id, note=""):
+        if user.role not in {"owner", "manager"}:
+            raise PermissionDenied("Only owner/manager can refund sales.")
+
+        sale = (
+            Sale.objects.select_for_update()
+            .select_related("club")
+            .prefetch_related("items__product")
+            .get(id=sale_id, club=club)
+        )
+
+        if sale.status != "completed":
+            raise ValidationError({"detail": f"Only completed sales can be refunded. Current: {sale.status}."})
+
+        product_ids = [item.product_id for item in sale.items.all()]
+
+        products = (
+            Product.objects.select_for_update()
+            .filter(club=club, id__in=product_ids)
+            .order_by("id")
+        )
+        products_by_id = {p.id: p for p in products}
+
+        for item in sale.items.all():
+            product = products_by_id[item.product_id]
+
+            StockService.create_movement(
+                product=product,
+                movement_type="refund",
+                quantity=item.quantity,
+                user=user,
+                note=note or f"Refund Sale #{sale.id}",
+                lock_product=False,
+            )
+
+        sale.status = "refunded"
+        sale.save(update_fields=["status"])
+
+        return sale
