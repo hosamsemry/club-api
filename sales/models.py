@@ -34,6 +34,7 @@ class SaleItem(models.Model):
     product = models.ForeignKey("inventory.Product", on_delete=models.PROTECT)
 
     quantity = models.PositiveIntegerField()
+    cost_price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2)
 
