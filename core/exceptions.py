@@ -1,5 +1,6 @@
-# core/exceptions.py
 from rest_framework.views import exception_handler
+from rest_framework.response import Response
+from rest_framework import status
 
 
 def _normalize_errors(data):
@@ -22,7 +23,16 @@ def custom_exception_handler(exc, context):
     response = exception_handler(exc, context)
 
     if response is None:
-        return response
+        return Response(
+            {
+                "success": False,
+                "message": "Internal server error",
+                "errors": {
+                    "detail": ["An unexpected error occurred."]
+                },
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     status_code = response.status_code
 
@@ -34,8 +44,6 @@ def custom_exception_handler(exc, context):
         message = "Permission denied"
     elif status_code == 404:
         message = "Not found"
-    elif status_code == 500:
-        message = "Internal server error"
     else:
         message = "Request failed"
 
