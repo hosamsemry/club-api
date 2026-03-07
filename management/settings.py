@@ -72,6 +72,11 @@ LOGGING = {
             "level": "ERROR",
             "propagate": True,
         },
+        "api":{
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        }
     },
 }
 
@@ -82,6 +87,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    "core.middleware.APILoggingMiddleware",
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
