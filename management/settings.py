@@ -55,6 +55,7 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
         "rest_framework.filters.SearchFilter",
     ],
+    "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
 }
 
 
