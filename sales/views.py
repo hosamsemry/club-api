@@ -9,6 +9,8 @@ from rest_framework.decorators import action
 from .filters import SaleFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter, SearchFilter
+from django.utils import timezone
+from django.db.models import Sum, Count
 
 class SaleViewSet(TenantModelViewSet):
     queryset = Sale.objects.select_related("created_by").prefetch_related("items__product")
@@ -53,3 +55,44 @@ class SaleViewSet(TenantModelViewSet):
 
         output = SaleReadSerializer(sale, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=["get"], url_path='daily-summary')
+    def daily_summary(self, request):
+
+        date_str = request.query_params.get("date")
+        if date_str:
+            try:
+                target_date = timezone.datetime.fromisoformat(date_str).date()
+            except ValueError:
+                return Response(
+                    {"detail": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_date = timezone.localdate()
+
+        qs = super().get_queryset().filter(created_at__date=target_date, status="completed")
+
+        totals = qs.aggregate(
+            total_revenue=Sum("total_amount"),
+            sales_count=Count("id"),
+        )
+
+        by_cashier = (
+            qs.values("created_by_id", "created_by__email")
+            .annotate(
+                revenue=Sum("total_amount"),
+                count=Count("id"),
+            )
+            .order_by("-revenue")
+        )
+
+        return Response(
+            {
+                "date": str(target_date),
+                "total_revenue": totals["total_revenue"] or 0,
+                "sales_count": totals["sales_count"],
+                "by_cashier": list(by_cashier),
+            },
+            status=status.HTTP_200_OK,
+        )
