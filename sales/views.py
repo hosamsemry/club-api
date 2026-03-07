@@ -2,7 +2,7 @@ from rest_framework import status, permissions
 from rest_framework.response import Response
 from core.views import TenantModelViewSet
 from core.permissions import RolePermission
-from sales.models import Sale
+from sales.models import Sale, SaleItem
 from sales.serializers import SaleCreateSerializer, SaleReadSerializer
 from sales.services.sale_service import SaleService
 from rest_framework.decorators import action
@@ -10,7 +10,7 @@ from .filters import SaleFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.utils import timezone
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, F, DecimalField, ExpressionWrapper
 
 class SaleViewSet(TenantModelViewSet):
     queryset = Sale.objects.select_related("created_by").prefetch_related("items__product")
@@ -93,6 +93,62 @@ class SaleViewSet(TenantModelViewSet):
                 "total_revenue": totals["total_revenue"] or 0,
                 "sales_count": totals["sales_count"],
                 "by_cashier": list(by_cashier),
+            },
+            status=status.HTTP_200_OK,
+        )
+    
+    @action(detail=False, methods=["get"], url_path="daily-profit")
+    def daily_profit(self, request):
+        if request.user.role not in ["owner", "manager"]:
+            return Response(
+                {"detail": "Only owner/manager can view profit analytics."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        date_str = request.query_params.get("date")
+        if date_str:
+            try:
+                target_date = timezone.datetime.fromisoformat(date_str).date()
+            except ValueError:
+                return Response(
+                    {"detail": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_date = timezone.localdate()
+
+        sales_qs = super().get_queryset().filter(
+            created_at__date=target_date,
+            status="completed",
+        )
+
+        items_qs = (
+            SaleItem.objects.filter(sale__in=sales_qs)
+            .annotate(
+                estimated_profit=ExpressionWrapper(
+                    (F("unit_price") - F("cost_price")) * F("quantity"),
+                    output_field=DecimalField(max_digits=12, decimal_places=2),
+                )
+            )
+        )
+
+        totals = items_qs.aggregate(
+            total_revenue=Sum("subtotal"),
+            total_cost=Sum(
+                ExpressionWrapper(
+                    F("cost_price") * F("quantity"),
+                    output_field=DecimalField(max_digits=12, decimal_places=2),
+                )
+            ),
+            total_profit=Sum("estimated_profit"),
+        )
+
+        return Response(
+            {
+                "date": str(target_date),
+                "total_revenue": totals["total_revenue"] or 0,
+                "total_cost": totals["total_cost"] or 0,
+                "total_profit": totals["total_profit"] or 0,
             },
             status=status.HTTP_200_OK,
         )
