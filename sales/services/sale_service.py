@@ -71,6 +71,7 @@ class SaleService:
                 if unit_price < 0:
                     raise ValidationError("unit_price cannot be negative.")
 
+            cost_price = product.cost_price
             subtotal = unit_price * Decimal(quantity)
 
             SaleItem.objects.create(
@@ -78,6 +79,7 @@ class SaleService:
                 product=product,
                 quantity=quantity,
                 unit_price=unit_price,
+                cost_price=cost_price,
                 subtotal=subtotal,
             )
 
