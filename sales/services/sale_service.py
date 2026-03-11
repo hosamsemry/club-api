@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError, PermissionDenied
 from inventory.models import Product
 from inventory.services.stock_service import StockService
 from sales.models import Sale, SaleItem
+from core.services.audit_service import AuditService
 
 
 class SaleService:
@@ -64,12 +65,14 @@ class SaleService:
 
             if unit_price_override is None:
                 unit_price = default_price
+                override_used = False
             else:
-                if user.role not in SaleService.OVERRIDE_ROLES:
-                    raise PermissionDenied("Only owner/manager can override prices.")
                 unit_price = Decimal(str(unit_price_override))
                 if unit_price < 0:
                     raise ValidationError("unit_price cannot be negative.")
+                override_used = unit_price != default_price
+                if override_used and user.role not in SaleService.OVERRIDE_ROLES:
+                    raise PermissionDenied("Only owner/manager can override prices.")
 
             cost_price = product.cost_price
             subtotal = unit_price * Decimal(quantity)
@@ -85,6 +88,21 @@ class SaleService:
 
             total += subtotal
 
+            if override_used:
+                AuditService.log(
+                    action="price_override",
+                    club=club,
+                    user=user,
+                    details={
+                        "sale_id": sale.id,
+                        "product_id": product.id,
+                        "product_name": product.name,
+                        "default_price": str(default_price),
+                        "override_price": str(unit_price),
+                        "quantity": quantity,
+                    },
+                )
+
             StockService.create_movement(
                 product=product,
                 movement_type="sale",
@@ -96,6 +114,28 @@ class SaleService:
 
         sale.total_amount = total
         sale.save(update_fields=["total_amount"])
+
+        AuditService.log(
+            action="sale_created",
+            club=club,
+            user=user,
+            details={
+                "sale_id": sale.id,
+                "total_amount": str(sale.total_amount),
+                "note": note,
+                "items": [
+                    {
+                        "product_id": item.product_id,
+                        "product_name": item.product.name,
+                        "quantity": item.quantity,
+                        "unit_price": str(item.unit_price),
+                        "cost_price": str(item.cost_price),
+                        "subtotal": str(item.subtotal),
+                    }
+                    for item in sale.items.select_related("product").all()
+                ],
+            },
+        )
 
         return sale
     
@@ -125,6 +165,8 @@ class SaleService:
         )
         products_by_id = {p.id: p for p in products}
 
+        refunded_items_summary = []
+
         for item in sale.items.all():
             product = products_by_id[item.product_id]
 
@@ -137,7 +179,29 @@ class SaleService:
                 lock_product=False,
             )
 
+            refunded_items_summary.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "quantity": item.quantity,
+                    "unit_price": str(item.unit_price),
+                    "subtotal": str(item.subtotal),
+                }
+            )
+
         sale.status = "refunded"
         sale.save(update_fields=["status"])
+
+        AuditService.log(
+            action="sale_refunded",
+            club=club,
+            user=user,
+            details={
+                "sale_id": sale.id,
+                "total_amount": str(sale.total_amount),
+                "note": note,
+                "items": refunded_items_summary,
+            },
+        )
 
         return sale

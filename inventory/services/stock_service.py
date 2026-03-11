@@ -1,6 +1,6 @@
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
-
+from core.services.audit_service import AuditService
 from inventory.models import Product, StockMovement
 
 
@@ -56,7 +56,30 @@ class StockService:
             note=note,
         )
 
+        old_stock = product.stock_quantity
         product.stock_quantity += delta
         product.save(update_fields=["stock_quantity"])
 
+        action_map = {
+            "refund": "stock_refund",
+            "restock": "stock_restock",
+            "adjustment": "stock_adjustment",
+        }
+
+        if movement_type in action_map:
+            AuditService.log(
+                action=action_map[movement_type],
+                club=product.club,
+                user=user,
+                details={
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "movement_type": movement_type,
+                    "direction": direction,
+                    "quantity": quantity,
+                    "old_stock": old_stock,
+                    "new_stock": product.stock_quantity,
+                    "note": note,
+                },
+            )
         return movement
