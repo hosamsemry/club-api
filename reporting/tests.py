@@ -236,7 +236,7 @@ class DailyClubReportViewSetTests(APITestCase):
     def test_pending_report_date_skips_before_local_cutoff(self):
         pending_date = DailyReportService.get_pending_report_date(
             club=self.club,
-            now=datetime(2026, 3, 11, 22, 2, tzinfo=dt_timezone.utc),
+            now=datetime(2026, 3, 11, 0, 2, tzinfo=dt_timezone.utc),
             cutoff_minutes=5,
         )
 
