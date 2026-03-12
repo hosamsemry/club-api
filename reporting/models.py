@@ -1,6 +1,16 @@
+import os
+
 from django.db import models
 
 from clubs.models import BaseModel, Club
+
+
+def daily_report_csv_upload_to(instance, filename):
+    return os.path.join(
+        "reports",
+        instance.club.slug,
+        f"daily-report-{instance.report_date}.csv",
+    )
 
 
 class DailyClubReport(BaseModel):
@@ -12,6 +22,7 @@ class DailyClubReport(BaseModel):
     sales_count = models.PositiveIntegerField(default=0)
     total_revenue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     audit_action_counts = models.JSONField(default=dict, blank=True)
+    csv_file = models.FileField(upload_to=daily_report_csv_upload_to, null=True, blank=True)
     generated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
