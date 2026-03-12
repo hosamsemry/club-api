@@ -3,7 +3,31 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class AuditService:
+    @staticmethod
+    def _create_log(
+        *,
+        action,
+        club=None,
+        user=None,
+        details=None,
+        path="",
+        method="",
+        status_code=None,
+        ip_address=None,
+    ):
+        return AuditLog.objects.create(
+            action=action,
+            club=club,
+            user=user,
+            details=details or {},
+            path=path,
+            method=method,
+            status_code=status_code,
+            ip_address=ip_address,
+        )
+
     @staticmethod
     def log(
         *,
