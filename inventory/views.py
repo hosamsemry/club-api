@@ -10,7 +10,12 @@ from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
 class StockMovementViewSet(TenantModelViewSet):
-    queryset = StockMovement.objects.all()
+    queryset = StockMovement.objects.select_related(
+        "product",
+        "product__category",
+        "created_by",
+        "club",
+    )
     serializer_class = StockMovementSerializer
     permission_classes = [IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
@@ -39,14 +44,14 @@ class StockMovementViewSet(TenantModelViewSet):
 
 
 class CategoryViewSet(TenantModelViewSet):
-    queryset = Category.objects.all()
+    queryset = Category.objects.select_related("club")
     serializer_class = CategorySerializer
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
 
 
 class ProductViewSet(TenantModelViewSet):
-    queryset = Product.objects.all()
+    queryset = Product.objects.select_related("category", "club")
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
