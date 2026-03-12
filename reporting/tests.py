@@ -3,12 +3,16 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from clubs.models import Club
 from core.models import AuditLog
 from inventory.models import Category, Product
 from reporting.models import DailyClubReport
 from reporting.services.daily_report_service import DailyReportService
+from reporting.services.export_service import ReportExportService
 from sales.models import Sale
 from sales.services.sale_service import SaleService
 
@@ -124,3 +128,116 @@ class DailyReportServiceTests(TestCase):
                 club=self.club,
                 report_date=date(2026, 3, 10),
             )
+
+    def test_pending_report_date_returns_yesterday_after_cutoff(self):
+        pending_date = DailyReportService.get_pending_report_date(
+            club=self.club,
+            now=datetime(2026, 3, 12, 3, 15, tzinfo=dt_timezone.utc),
+            cutoff_minutes=5,
+        )
+
+        self.assertEqual(pending_date, date(2026, 3, 11))
+
+    def test_pending_report_date_skips_existing_report(self):
+        DailyReportService.generate_for_club(
+            club=self.club,
+            report_date=date(2026, 3, 11),
+        )
+
+        pending_date = DailyReportService.get_pending_report_date(
+            club=self.club,
+            now=datetime(2026, 3, 12, 3, 15, tzinfo=dt_timezone.utc),
+            cutoff_minutes=5,
+        )
+
+        self.assertIsNone(pending_date)
+
+
+class DailyClubReportViewSetTests(APITestCase):
+    def setUp(self):
+        self.club = Club.objects.create(name="Main Club", timezone="UTC")
+        self.other_club = Club.objects.create(name="Other Club", timezone="UTC")
+        self.owner = User.objects.create_user(
+            email="owner@reports.com",
+            username="owner_reports",
+            password="secret123",
+            club=self.club,
+            role="owner",
+        )
+        self.cashier = User.objects.create_user(
+            email="cashier@reports.com",
+            username="cashier_reports",
+            password="secret123",
+            club=self.club,
+            role="cashier",
+        )
+        self.report = DailyClubReport.objects.create(
+            club=self.club,
+            report_date=date(2026, 3, 11),
+            timezone="UTC",
+            source_window_start=datetime(2026, 3, 11, 0, 0, tzinfo=dt_timezone.utc),
+            source_window_end=datetime(2026, 3, 12, 0, 0, tzinfo=dt_timezone.utc),
+            sales_count=3,
+            total_revenue=Decimal("120.00"),
+            audit_action_counts={"sale_created": 3},
+        )
+        self.other_report = DailyClubReport.objects.create(
+            club=self.other_club,
+            report_date=date(2026, 3, 11),
+            timezone="UTC",
+            source_window_start=datetime(2026, 3, 11, 0, 0, tzinfo=dt_timezone.utc),
+            source_window_end=datetime(2026, 3, 12, 0, 0, tzinfo=dt_timezone.utc),
+            sales_count=1,
+            total_revenue=Decimal("50.00"),
+            audit_action_counts={"sale_created": 1},
+        )
+
+    def test_owner_can_list_only_club_reports(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(reverse("dailyclubreport-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["id"], self.report.id)
+
+    def test_cashier_cannot_access_reports(self):
+        self.client.force_authenticate(self.cashier)
+
+        response = self.client.get(reverse("dailyclubreport-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_csv_generates_file_on_request(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(reverse("dailyclubreport-export-csv", args=[self.report.id]))
+
+        self.report.refresh_from_db()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(self.report.csv_file.name.endswith(".csv"))
+
+    def test_regeneration_clears_previous_csv_export(self):
+        ReportExportService.generate_csv(report=self.report)
+        self.assertTrue(self.report.csv_file.name)
+
+        self.report.total_revenue = Decimal("140.00")
+        self.report.save(update_fields=["total_revenue"])
+
+        regenerated = DailyReportService.regenerate_for_club(
+            club=self.club,
+            report_date=self.report.report_date,
+        )
+
+        self.assertEqual(regenerated.pk, self.report.pk)
+        self.assertFalse(bool(regenerated.csv_file))
+
+    def test_pending_report_date_skips_before_local_cutoff(self):
+        pending_date = DailyReportService.get_pending_report_date(
+            club=self.club,
+            now=datetime(2026, 3, 11, 22, 2, tzinfo=dt_timezone.utc),
+            cutoff_minutes=5,
+        )
+
+        self.assertIsNone(pending_date)
