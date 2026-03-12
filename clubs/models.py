@@ -25,6 +25,7 @@ class BaseModel(models.Model):
 class Club(BaseModel):
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
+    timezone = models.CharField(max_length=64, default="UTC")
     subscription_plan = models.ForeignKey(
         "SubscriptionPlan", on_delete=models.SET_NULL, null=True, blank=True
     )

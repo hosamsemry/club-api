@@ -1,5 +1,6 @@
 from decimal import Decimal
 from django.db import transaction
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from inventory.models import Product
 from inventory.services.stock_service import StockService
@@ -190,7 +191,8 @@ class SaleService:
             )
 
         sale.status = "refunded"
-        sale.save(update_fields=["status"])
+        sale.refunded_at = timezone.now()
+        sale.save(update_fields=["status", "refunded_at"])
 
         AuditService.log(
             action="sale_refunded",

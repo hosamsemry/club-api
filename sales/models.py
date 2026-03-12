@@ -18,11 +18,13 @@ class Sale(TenantBaseModel):
 
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="completed")
+    refunded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["club", "created_at"]),
             models.Index(fields=["club", "status"]),
+            models.Index(fields=["club", "refunded_at"]),
         ]
 
     def __str__(self):
