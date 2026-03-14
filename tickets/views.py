@@ -4,6 +4,9 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
+from django.db.models import Count, Sum
+from django.utils import timezone
+
 from core.permissions import RolePermission
 from core.views import TenantModelViewSet
 from tickets.filters import GateEntryDayFilter, GateTicketFilter, GateTicketSaleFilter
@@ -108,6 +111,39 @@ class GateTicketSaleViewSet(TenantModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Ticket sales cannot be deleted.")
+
+    @action(detail=False, methods=["get"], url_path="daily-summary")
+    def daily_summary(self, request):
+        date_str = request.query_params.get("date")
+        if date_str:
+            try:
+                target_date = timezone.datetime.fromisoformat(date_str).date()
+            except ValueError:
+                return Response(
+                    {"detail": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_date = timezone.localdate()
+
+        qs = super().get_queryset().filter(
+            visit_date=target_date,
+            status=GateTicketSale.STATUS_ISSUED,
+        )
+
+        totals = qs.aggregate(
+            total_revenue=Sum("total_amount"),
+            ticket_sales_count=Count("id"),
+        )
+
+        return Response(
+            {
+                "date": str(target_date),
+                "ticket_sales_count": totals["ticket_sales_count"],
+                "total_revenue": totals["total_revenue"] or 0,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class GateTicketViewSet(TenantModelViewSet):
