@@ -394,3 +394,63 @@ class GateTicketTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
+
+    def test_daily_summary_returns_requested_date_totals(self):
+        self.client.force_authenticate(self.cashier)
+        GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Buyer One",
+            buyer_phone="02100000000",
+            visit_date=self.visit_date,
+            total_amount=Decimal("150.00"),
+            status=GateTicketSale.STATUS_ISSUED,
+            created_by=self.cashier,
+        )
+        GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Buyer Two",
+            buyer_phone="02200000000",
+            visit_date=self.visit_date,
+            total_amount=Decimal("250.00"),
+            status=GateTicketSale.STATUS_ISSUED,
+            created_by=self.cashier,
+        )
+        GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Voided Buyer",
+            buyer_phone="02300000000",
+            visit_date=self.visit_date,
+            total_amount=Decimal("999.00"),
+            status=GateTicketSale.STATUS_VOIDED,
+            created_by=self.cashier,
+        )
+
+        response = self.client.get(
+            reverse("gateticketsale-daily-summary"),
+            {"date": self.visit_date.isoformat()},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["date"], self.visit_date.isoformat())
+        self.assertEqual(response.data["ticket_sales_count"], 2)
+        self.assertEqual(Decimal(str(response.data["total_revenue"])), Decimal("400.00"))
+
+    def test_daily_summary_defaults_to_today(self):
+        self.client.force_authenticate(self.cashier)
+        today = timezone.localdate()
+        GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Today Buyer",
+            buyer_phone="02400000000",
+            visit_date=today,
+            total_amount=Decimal("180.00"),
+            status=GateTicketSale.STATUS_ISSUED,
+            created_by=self.cashier,
+        )
+
+        response = self.client.get(reverse("gateticketsale-daily-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["date"], today.isoformat())
+        self.assertEqual(response.data["ticket_sales_count"], 1)
+        self.assertEqual(Decimal(str(response.data["total_revenue"])), Decimal("180.00"))
