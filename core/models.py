@@ -12,6 +12,13 @@ class AuditLog(BaseModel):
         ("stock_adjustment", "Stock Adjustment"),
         ("stock_restock", "Stock Restock"),
         ("stock_refund", "Stock Refund"),
+        ("occasion_type_created", "Occasion Type Created"),
+        ("occasion_type_updated", "Occasion Type Updated"),
+        ("occasion_type_deactivated", "Occasion Type Deactivated"),
+        ("reservation_created", "Reservation Created"),
+        ("reservation_payment_recorded", "Reservation Payment Recorded"),
+        ("reservation_cancelled", "Reservation Cancelled"),
+        ("reservation_refunded", "Reservation Refunded"),
     ]
 
     club = models.ForeignKey(
