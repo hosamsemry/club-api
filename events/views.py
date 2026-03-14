@@ -47,7 +47,7 @@ class OccasionTypeViewSet(TenantModelViewSet):
         )
 
     def destroy(self, request, *args, **kwargs):
-        raise MethodNotAllowed("Occasion types cannot be deleted.")
+        raise MethodNotAllowed(request.method, detail="Occasion types cannot be deleted.")
 
 
 class VenueReservationViewSet(TenantModelViewSet):
@@ -79,6 +79,7 @@ class VenueReservationViewSet(TenantModelViewSet):
         reservation = ReservationService.create_reservation(
             club=request.user.club,
             user=request.user,
+            paid_amount=0,
             **serializer.validated_data,
         )
         output = VenueReservationReadSerializer(reservation, context=self.get_serializer_context())
@@ -97,7 +98,6 @@ class VenueReservationViewSet(TenantModelViewSet):
             "ends_at": serializer.validated_data.get("ends_at", instance.ends_at),
             "guest_count": serializer.validated_data.get("guest_count", instance.guest_count),
             "total_amount": serializer.validated_data.get("total_amount", instance.total_amount),
-            "paid_amount": serializer.validated_data.get("paid_amount", instance.paid_amount),
             "notes": serializer.validated_data.get("notes", instance.notes),
         }
         reservation = ReservationService.update_reservation(
@@ -141,4 +141,4 @@ class VenueReservationViewSet(TenantModelViewSet):
         return Response(output.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
-        raise MethodNotAllowed("Reservations cannot be deleted.")
+        raise MethodNotAllowed(request.method, detail="Reservations cannot be deleted.")
