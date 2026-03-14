@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'sales',
     'reporting',
     'events',
+    'tickets',
 ]
 
 

@@ -19,6 +19,14 @@ class AuditLog(BaseModel):
         ("reservation_payment_recorded", "Reservation Payment Recorded"),
         ("reservation_cancelled", "Reservation Cancelled"),
         ("reservation_refunded", "Reservation Refunded"),
+        ("gate_ticket_type_created", "Gate Ticket Type Created"),
+        ("gate_ticket_type_updated", "Gate Ticket Type Updated"),
+        ("gate_ticket_type_deactivated", "Gate Ticket Type Deactivated"),
+        ("gate_entry_day_created", "Gate Entry Day Created"),
+        ("gate_entry_day_updated", "Gate Entry Day Updated"),
+        ("gate_ticket_sale_created", "Gate Ticket Sale Created"),
+        ("gate_ticket_checked_in", "Gate Ticket Checked In"),
+        ("gate_ticket_voided", "Gate Ticket Voided"),
     ]
 
     club = models.ForeignKey(
