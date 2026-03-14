@@ -81,7 +81,6 @@ class VenueReservationTests(APITestCase):
                 "ends_at": self.ends_at.isoformat(),
                 "guest_count": 120,
                 "total_amount": "5000.00",
-                "paid_amount": "1000.00",
                 "notes": "Family booking",
             },
             format="json",
@@ -89,7 +88,7 @@ class VenueReservationTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         reservation = VenueReservation.objects.get(club=self.club, guest_phone="01000000000")
-        self.assertEqual(reservation.payment_status, VenueReservation.PAYMENT_PARTIAL)
+        self.assertEqual(reservation.payment_status, VenueReservation.PAYMENT_UNPAID)
         self.assertTrue(AuditLog.objects.filter(action="reservation_created").exists())
 
     def test_overlapping_reservation_is_rejected(self):
