@@ -54,20 +54,13 @@ class VenueReservationWriteSerializer(serializers.Serializer):
         decimal_places=2,
         min_value=Decimal("0.00"),
     )
-    paid_amount = serializers.DecimalField(
-        max_digits=12,
-        decimal_places=2,
-        min_value=Decimal("0.00"),
-        required=False,
-        default=0,
-    )
     notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
         ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
         total_amount = attrs.get("total_amount", getattr(self.instance, "total_amount", None))
-        paid_amount = attrs.get("paid_amount", getattr(self.instance, "paid_amount", 0))
+        paid_amount = getattr(self.instance, "paid_amount", Decimal("0.00"))
 
         if starts_at and ends_at and starts_at >= ends_at:
             raise serializers.ValidationError({"ends_at": "End time must be after start time."})
