@@ -90,3 +90,41 @@ class StockMovement(TenantBaseModel):
     def __str__(self):
         user = self.created_by.username if self.created_by else "Unknown"
         return f"{self.product.name} - {self.movement_type} ({self.quantity}) by {user}"
+
+
+class LowStockAlert(TenantBaseModel):
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="low_stock_alerts"
+    )
+    triggered_by_movement = models.ForeignKey(
+        StockMovement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="triggered_low_stock_alerts",
+    )
+    threshold_value = models.PositiveIntegerField()
+    stock_quantity_at_trigger = models.PositiveIntegerField()
+    recipient_user_ids = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["club", "is_active"]),
+            models.Index(fields=["club", "product"]),
+        ]
+        constraints = [
+            CheckConstraint(
+                condition=Q(threshold_value__gte=0),
+                name="low_stock_threshold_value_non_negative",
+            ),
+            CheckConstraint(
+                condition=Q(stock_quantity_at_trigger__gte=0),
+                name="low_stock_quantity_at_trigger_non_negative",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Low stock alert for {self.product.name} ({self.stock_quantity_at_trigger})"

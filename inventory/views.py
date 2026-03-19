@@ -1,6 +1,11 @@
 from core.views import TenantModelViewSet
-from inventory.models import StockMovement, Category, Product
-from inventory.serializers import StockMovementSerializer, CategorySerializer, ProductSerializer
+from inventory.models import StockMovement, Category, Product, LowStockAlert
+from inventory.serializers import (
+    StockMovementSerializer,
+    CategorySerializer,
+    ProductSerializer,
+    LowStockAlertSerializer,
+)
 from rest_framework import permissions
 from inventory.services.stock_service import StockService
 from core.permissions import RolePermission
@@ -8,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import viewsets
 
 class StockMovementViewSet(TenantModelViewSet):
     queryset = StockMovement.objects.select_related(
@@ -70,4 +76,23 @@ class ProductViewSet(TenantModelViewSet):
         if product.stock_quantity < 0:
             raise ValidationError("Stock quantity cannot be negative after update")
         return product
-    
+
+
+class LowStockAlertViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = LowStockAlert.objects.select_related(
+        "product",
+        "triggered_by_movement",
+        "club",
+    )
+    serializer_class = LowStockAlertSerializer
+    permission_classes = [IsAuthenticated, RolePermission]
+    required_roles = ["owner", "manager"]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["is_active", "product"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.is_authenticated or not user.club_id:
+            return LowStockAlert.objects.none()
+
+        return super().get_queryset().filter(club=user.club)
