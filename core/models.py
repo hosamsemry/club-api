@@ -12,6 +12,7 @@ class AuditLog(BaseModel):
         ("stock_adjustment", "Stock Adjustment"),
         ("stock_restock", "Stock Restock"),
         ("stock_refund", "Stock Refund"),
+        ("low_stock_alert_created", "Low Stock Alert Created"),
         ("occasion_type_created", "Occasion Type Created"),
         ("occasion_type_updated", "Occasion Type Updated"),
         ("occasion_type_deactivated", "Occasion Type Deactivated"),
