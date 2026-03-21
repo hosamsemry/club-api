@@ -23,3 +23,20 @@ class AuditLogSerializer(serializers.ModelSerializer):
             "ip_address",
             "created_at",
         ]
+
+
+class DashboardRecentActivitySerializer(serializers.Serializer):
+    action = serializers.CharField()
+    user_email = serializers.EmailField(allow_null=True)
+    created_at = serializers.DateTimeField()
+
+
+class DashboardSummarySerializer(serializers.Serializer):
+    total_products = serializers.IntegerField()
+    low_stock_alert_count = serializers.IntegerField()
+    today_reservations_count = serializers.IntegerField()
+    pending_reservations_count = serializers.IntegerField()
+    today_ticket_sales_count = serializers.IntegerField()
+    today_ticket_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
+    today_checked_in_tickets_count = serializers.IntegerField()
+    recent_activity = DashboardRecentActivitySerializer(many=True)
