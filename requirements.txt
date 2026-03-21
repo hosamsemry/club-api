@@ -1,5 +1,6 @@
 amqp==5.3.1
 asgiref==3.11.1
+attrs==26.1.0
 billiard==4.2.4
 celery==5.6.2
 click==8.3.1
@@ -7,10 +8,14 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 Django==6.0.2
+django-cors-headers==4.9.0
 django-filter==25.2
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 dotenv==0.9.9
+inflection==0.5.1
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
 kombu==5.6.2
 packaging==26.0
 pillow==12.1.1
@@ -19,10 +24,15 @@ psycopg2-binary==2.9.11
 PyJWT==2.11.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
+PyYAML==6.0.3
 redis==7.3.0
+referencing==0.37.0
+rpds-py==0.30.0
 six==1.17.0
 sqlparse==0.5.5
+typing_extensions==4.15.0
 tzdata==2025.3
 tzlocal==5.3.1
+uritemplate==4.2.0
 vine==5.1.0
 wcwidth==0.6.0
