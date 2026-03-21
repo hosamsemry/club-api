@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import AccessToken
 
 from clubs.models import Club
 
@@ -37,3 +39,28 @@ class UserManagerTests(TestCase):
         self.assertTrue(user.is_staff)
         self.assertIsNone(user.club)
         self.assertEqual(user.role, "")
+
+
+class TokenObtainPairTests(APITestCase):
+    def test_token_login_accepts_email_and_returns_role_claims(self):
+        club = Club.objects.create(name="Login Club")
+        user = User.objects.create_user(
+            email="owner@example.com",
+            username="owner",
+            password="secret123",
+            club=club,
+            role="owner",
+        )
+
+        response = self.client.post(
+            "/api/token/",
+            {"email": user.email, "password": "secret123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        access_token = AccessToken(response.data["access"])
+        self.assertEqual(access_token["email"], user.email)
+        self.assertEqual(access_token["role"], user.role)
