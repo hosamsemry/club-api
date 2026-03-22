@@ -687,6 +687,48 @@ Response example:
 }
 ```
 
+### Revenue Calculator
+
+`GET /api/reporting/revenue/`
+
+Calculate revenue for one or more categories over an inclusive date range.
+
+Allowed roles: `owner`, `manager`
+
+**Query Parameters:**
+
+| Parameter    | Type     | Required | Description                                                    |
+| ------------ | -------- | -------- | -------------------------------------------------------------- |
+| `start_date` | date     | Yes      | Start of the range (inclusive), e.g. `2026-03-01`              |
+| `end_date`   | date     | Yes      | End of the range (inclusive), must be >= `start_date`          |
+| `fields`     | string[] | Yes      | One or more of: `tickets`, `products`, `events` (repeated key) |
+
+**Example request:**
+
+```text
+GET /api/reporting/revenue/?start_date=2026-03-01&end_date=2026-03-15&fields=products&fields=tickets
+```
+
+**Response example:**
+
+```json
+{
+  "start_date": "2026-03-01",
+  "end_date": "2026-03-15",
+  "products": "1250.00",
+  "tickets": "3400.00",
+  "total_revenue": "4650.00"
+}
+```
+
+Only selected fields appear in the response. `total_revenue` is always present and equals the sum of all selected category amounts.
+
+**Revenue definitions:**
+
+- **Products** – net completed product sales minus refunds that occurred in the window.
+- **Tickets** – issued (non-voided) gate ticket sales created in the window.
+- **Events** – `paid_amount` from non-cancelled venue reservations whose `starts_at` falls in the window.
+
 ## Common Notes
 
 ### Pagination
