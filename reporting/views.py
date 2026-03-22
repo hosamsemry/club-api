@@ -5,9 +5,14 @@ from rest_framework.response import Response
 
 from core.permissions import RolePermission
 from reporting.models import DailyClubReport
-from reporting.serializers import DailyClubReportSerializer
+from reporting.serializers import (
+    DailyClubReportSerializer,
+    RevenueQuerySerializer,
+    RevenueResponseSerializer,
+)
 from reporting.services.daily_report_service import DailyReportService
 from reporting.services.export_service import ReportExportService
+from reporting.services.revenue_range_service import RevenueRangeService
 from reporting.tasks import regenerate_daily_report_for_club
 
 
@@ -60,3 +65,28 @@ class DailyClubReportViewSet(viewsets.ReadOnlyModelViewSet):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class RevenueViewSet(viewsets.ViewSet):
+    """
+    GET /api/reporting/revenue/?start_date=...&end_date=...&fields=tickets&fields=products
+    Returns per-category revenue and total for the inclusive date range.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, RolePermission]
+    required_roles = ["owner", "manager"]
+
+    def list(self, request):
+        query_serializer = RevenueQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        data = query_serializer.validated_data
+        result = RevenueRangeService.calculate(
+            club=request.user.club,
+            start_date=data["start_date"],
+            end_date=data["end_date"],
+            fields=data["fields"],
+        )
+
+        response_serializer = RevenueResponseSerializer(result)
+        return Response(response_serializer.data)
