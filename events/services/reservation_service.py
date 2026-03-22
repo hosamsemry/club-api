@@ -26,6 +26,11 @@ class ReservationService:
 
     @staticmethod
     def _validate_time_range(*, starts_at, ends_at):
+        now = timezone.now()
+        if starts_at < now:
+            raise ValidationError({"starts_at": "Start time cannot be in the past."})
+        if ends_at < now:
+            raise ValidationError({"ends_at": "End time cannot be in the past."})
         if starts_at >= ends_at:
             raise ValidationError({"ends_at": "End time must be after start time."})
 
