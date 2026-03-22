@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 from clubs.models import TenantBaseModel
 from django.core.validators import MinValueValidator
@@ -26,10 +28,10 @@ class Product(TenantBaseModel):
     )
     sku = models.CharField(max_length=50)
     cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
     )
     selling_price = models.DecimalField(
-        max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
+        max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))]
     )
     stock_quantity = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -43,11 +45,11 @@ class Product(TenantBaseModel):
             models.UniqueConstraint(fields=["club", "sku"], name="unique_sku_per_club"),
             models.UniqueConstraint(fields=["club", "name"], name="unique_product_name_per_club"),
             models.CheckConstraint(
-                condition=Q(cost_price__gte=0),
+                condition=Q(cost_price__gt=0),
                 name="cost_price_positive"
             ),
             models.CheckConstraint(
-                condition=Q(selling_price__gte=0),
+                condition=Q(selling_price__gt=0),
                 name="selling_price_positive"
             ),
             models.CheckConstraint(
