@@ -43,10 +43,11 @@ class StockMovementSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Required only for adjustment movements"
     )
+    product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
         model = StockMovement
-        fields = ["id", "product", "movement_type", "quantity", "direction", "note", "created_at"]
+        fields = ["id", "product_name", "movement_type", "quantity", "direction", "note", "created_at"]
 
     def validate(self, attrs):
         movement_type = attrs.get("movement_type")
