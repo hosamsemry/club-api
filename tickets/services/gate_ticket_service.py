@@ -108,6 +108,7 @@ class GateTicketService:
     @staticmethod
     @transaction.atomic
     def create_sale(*, club, user, buyer_name, buyer_phone, visit_date, items, notes=""):
+        GateTicketService._validate_entry_day_date(club=club, visit_date=visit_date)
         entry_day = GateTicketService._entry_day_for_sale(club=club, visit_date=visit_date)
         total_quantity = 0
         total_amount = Decimal("0.00")
