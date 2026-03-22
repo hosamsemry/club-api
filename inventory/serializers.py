@@ -26,6 +26,16 @@ class ProductSerializer(serializers.ModelSerializer):
             "low_stock_threshold",
         ]
 
+    def validate_cost_price(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Cost price must be greater than zero.")
+        return value
+
+    def validate_selling_price(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Selling price must be greater than zero.")
+        return value
+
 
 class StockMovementSerializer(serializers.ModelSerializer):
     direction = serializers.ChoiceField(
