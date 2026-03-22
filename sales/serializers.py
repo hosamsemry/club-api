@@ -36,13 +36,12 @@ class SaleReadSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by_email",
             "items",
-            'total_amount',
         ]
 
 
 class SaleCreateItemSerializer(serializers.Serializer):
     product_id = serializers.IntegerField()
-    quantity = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
     unit_price = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
