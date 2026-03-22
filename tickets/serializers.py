@@ -6,7 +6,7 @@ from tickets.models import GateEntryDay, GateTicket, GateTicketSale, GateTicketT
 
 
 class GateTicketTypeSerializer(serializers.ModelSerializer):
-    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.00"))
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
 
     class Meta:
         model = GateTicketType
