@@ -31,6 +31,11 @@ class GateTicketService:
             raise ValidationError({"ticket_type": "Ticket type is inactive."})
 
     @staticmethod
+    def _validate_entry_day_date(*, club, visit_date):
+        if visit_date < GateTicketService._club_today(club=club):
+            raise ValidationError({"visit_date": "Visit date cannot be in the past."})
+
+    @staticmethod
     def _entry_day_for_sale(*, club, visit_date):
         entry_day = GateEntryDay.objects.select_for_update().filter(
             club=club,
