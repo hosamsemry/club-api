@@ -1,4 +1,4 @@
-from datetime import datetime, date, timezone as dt_timezone
+from datetime import datetime, date, timedelta, timezone as dt_timezone
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
@@ -9,12 +9,15 @@ from rest_framework.test import APITestCase
 
 from clubs.models import Club
 from core.models import AuditLog
+from events.models import OccasionType, VenueReservation
 from inventory.models import Category, Product
 from reporting.models import DailyClubReport
 from reporting.services.daily_report_service import DailyReportService
 from reporting.services.export_service import ReportExportService
+from reporting.services.revenue_range_service import RevenueRangeService
 from sales.models import Sale
 from sales.services.sale_service import SaleService
+from tickets.models import GateTicketSale
 
 
 User = get_user_model()
@@ -241,3 +244,315 @@ class DailyClubReportViewSetTests(APITestCase):
         )
 
         self.assertIsNone(pending_date)
+
+
+# ── Revenue Range Service & Endpoint Tests ──────────────────────────────────
+
+
+class RevenueRangeServiceTests(TestCase):
+    def setUp(self):
+        self.club = Club.objects.create(name="Revenue Club", timezone="UTC")
+        self.category = Category.objects.create(club=self.club, name="Drinks")
+        self.product = Product.objects.create(
+            club=self.club,
+            category=self.category,
+            name="Soda",
+            sku="SODA-1",
+            cost_price=Decimal("3.00"),
+            selling_price=Decimal("8.00"),
+            stock_quantity=100,
+        )
+        self.owner = User.objects.create_user(
+            email="rev_owner@example.com",
+            username="rev_owner",
+            password="secret123",
+            club=self.club,
+            role="owner",
+        )
+        self.occasion_type = OccasionType.objects.create(club=self.club, name="Party")
+
+    def _create_sale(self, created_at, amount, sale_status="completed", refunded_at=None):
+        sale = Sale.objects.create(
+            club=self.club,
+            created_by=self.owner,
+            total_amount=amount,
+            status=sale_status,
+            refunded_at=refunded_at,
+        )
+        Sale.objects.filter(pk=sale.pk).update(created_at=created_at, refunded_at=refunded_at)
+        return sale
+
+    def _create_ticket_sale(self, created_at, amount, sale_status=GateTicketSale.STATUS_ISSUED):
+        ts = GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Buyer",
+            buyer_phone="01000000000",
+            visit_date=created_at.date(),
+            total_amount=amount,
+            status=sale_status,
+            created_by=self.owner,
+        )
+        GateTicketSale.objects.filter(pk=ts.pk).update(created_at=created_at)
+        return ts
+
+    def _create_reservation(self, starts_at, total, paid, res_status="confirmed"):
+        return VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Guest",
+            guest_phone="01000000001",
+            starts_at=starts_at,
+            ends_at=starts_at + timedelta(hours=4),
+            guest_count=50,
+            total_amount=total,
+            paid_amount=paid,
+            status=res_status,
+            created_by=self.owner,
+        )
+
+    def test_single_field_products(self):
+        self._create_sale(datetime(2026, 3, 10, 12, 0, tzinfo=dt_timezone.utc), Decimal("100.00"))
+        self._create_sale(datetime(2026, 3, 11, 12, 0, tzinfo=dt_timezone.utc), Decimal("50.00"))
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 11),
+            fields=["products"],
+        )
+
+        self.assertEqual(result["products"], Decimal("150.00"))
+        self.assertEqual(result["total_revenue"], Decimal("150.00"))
+        self.assertNotIn("tickets", result)
+        self.assertNotIn("events", result)
+
+    def test_single_field_tickets(self):
+        self._create_ticket_sale(datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc), Decimal("200.00"))
+        self._create_ticket_sale(
+            datetime(2026, 3, 10, 11, 0, tzinfo=dt_timezone.utc),
+            Decimal("999.00"),
+            sale_status=GateTicketSale.STATUS_VOIDED,
+        )
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 10),
+            fields=["tickets"],
+        )
+
+        self.assertEqual(result["tickets"], Decimal("200.00"))
+        self.assertEqual(result["total_revenue"], Decimal("200.00"))
+
+    def test_single_field_events(self):
+        self._create_reservation(
+            datetime(2026, 3, 10, 18, 0, tzinfo=dt_timezone.utc),
+            total=Decimal("5000.00"),
+            paid=Decimal("3000.00"),
+        )
+        # cancelled reservation should be excluded
+        self._create_reservation(
+            datetime(2026, 3, 10, 20, 0, tzinfo=dt_timezone.utc),
+            total=Decimal("2000.00"),
+            paid=Decimal("1000.00"),
+            res_status="cancelled",
+        )
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 10),
+            fields=["events"],
+        )
+
+        self.assertEqual(result["events"], Decimal("3000.00"))
+        self.assertEqual(result["total_revenue"], Decimal("3000.00"))
+
+    def test_multi_field_total(self):
+        self._create_sale(datetime(2026, 3, 10, 12, 0, tzinfo=dt_timezone.utc), Decimal("100.00"))
+        self._create_ticket_sale(datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc), Decimal("200.00"))
+        self._create_reservation(
+            datetime(2026, 3, 10, 18, 0, tzinfo=dt_timezone.utc),
+            total=Decimal("5000.00"),
+            paid=Decimal("3000.00"),
+        )
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 10),
+            fields=["products", "tickets", "events"],
+        )
+
+        self.assertEqual(result["products"], Decimal("100.00"))
+        self.assertEqual(result["tickets"], Decimal("200.00"))
+        self.assertEqual(result["events"], Decimal("3000.00"))
+        self.assertEqual(result["total_revenue"], Decimal("3300.00"))
+
+    def test_products_refund_is_subtracted(self):
+        self._create_sale(datetime(2026, 3, 10, 12, 0, tzinfo=dt_timezone.utc), Decimal("100.00"))
+        self._create_sale(
+            datetime(2026, 3, 9, 12, 0, tzinfo=dt_timezone.utc),
+            Decimal("50.00"),
+            sale_status="refunded",
+            refunded_at=datetime(2026, 3, 10, 14, 0, tzinfo=dt_timezone.utc),
+        )
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 10),
+            fields=["products"],
+        )
+
+        self.assertEqual(result["products"], Decimal("50.00"))
+
+    def test_date_boundary_inclusive(self):
+        """Data exactly on start and end dates should be included."""
+        self._create_sale(datetime(2026, 3, 10, 0, 0, tzinfo=dt_timezone.utc), Decimal("10.00"))
+        self._create_sale(datetime(2026, 3, 12, 23, 59, 59, tzinfo=dt_timezone.utc), Decimal("20.00"))
+        # just outside the range
+        self._create_sale(datetime(2026, 3, 13, 0, 0, tzinfo=dt_timezone.utc), Decimal("999.00"))
+
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 12),
+            fields=["products"],
+        )
+
+        self.assertEqual(result["products"], Decimal("30.00"))
+
+    def test_empty_range_returns_zero(self):
+        result = RevenueRangeService.calculate(
+            club=self.club,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            fields=["products", "tickets", "events"],
+        )
+
+        self.assertEqual(result["products"], Decimal("0.00"))
+        self.assertEqual(result["tickets"], Decimal("0.00"))
+        self.assertEqual(result["events"], Decimal("0.00"))
+        self.assertEqual(result["total_revenue"], Decimal("0.00"))
+
+
+class RevenueViewSetTests(APITestCase):
+    def setUp(self):
+        self.club = Club.objects.create(name="API Revenue Club", timezone="UTC")
+        self.category = Category.objects.create(club=self.club, name="Food")
+        self.product = Product.objects.create(
+            club=self.club,
+            category=self.category,
+            name="Burger",
+            sku="BURG-1",
+            cost_price=Decimal("5.00"),
+            selling_price=Decimal("15.00"),
+            stock_quantity=50,
+        )
+        self.owner = User.objects.create_user(
+            email="rev_api_owner@example.com",
+            username="rev_api_owner",
+            password="secret123",
+            club=self.club,
+            role="owner",
+        )
+        self.manager = User.objects.create_user(
+            email="rev_api_manager@example.com",
+            username="rev_api_manager",
+            password="secret123",
+            club=self.club,
+            role="manager",
+        )
+        self.cashier = User.objects.create_user(
+            email="rev_api_cashier@example.com",
+            username="rev_api_cashier",
+            password="secret123",
+            club=self.club,
+            role="cashier",
+        )
+        self.url = reverse("revenue-list")
+
+    def test_owner_can_query_revenue(self):
+        sale = Sale.objects.create(
+            club=self.club,
+            created_by=self.owner,
+            total_amount=Decimal("100.00"),
+            status="completed",
+        )
+        Sale.objects.filter(pk=sale.pk).update(
+            created_at=datetime(2026, 3, 10, 12, 0, tzinfo=dt_timezone.utc)
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "fields": "products"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(response.data["products"]), Decimal("100.00"))
+        self.assertEqual(Decimal(response.data["total_revenue"]), Decimal("100.00"))
+
+    def test_manager_can_query_revenue(self):
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "fields": "products"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cashier_cannot_access_revenue(self):
+        self.client.force_authenticate(self.cashier)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "fields": "products"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_missing_fields_returns_400(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_field_value_returns_400(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "fields": "invalid"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_end_date_before_start_date_returns_400(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-12", "end_date": "2026-03-10", "fields": "products"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_multiple_fields_returned(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "fields": ["products", "tickets"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("products", response.data)
+        self.assertIn("tickets", response.data)
+        self.assertIn("total_revenue", response.data)
