@@ -26,6 +26,16 @@ class ProductSerializer(serializers.ModelSerializer):
             "low_stock_threshold",
         ]
 
+    def validate_cost_price(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Cost price must be greater than zero.")
+        return value
+
+    def validate_selling_price(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Selling price must be greater than zero.")
+        return value
+
 
 class StockMovementSerializer(serializers.ModelSerializer):
     direction = serializers.ChoiceField(
@@ -33,10 +43,11 @@ class StockMovementSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Required only for adjustment movements"
     )
+    product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
         model = StockMovement
-        fields = ["id", "product", "movement_type", "quantity", "direction", "note", "created_at"]
+        fields = ["id", "product_name", "movement_type", "quantity", "direction", "note", "created_at"]
 
     def validate(self, attrs):
         movement_type = attrs.get("movement_type")

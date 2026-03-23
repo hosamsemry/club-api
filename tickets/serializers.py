@@ -1,12 +1,12 @@
 from decimal import Decimal
-
+from django.utils import timezone
 from rest_framework import serializers
 
 from tickets.models import GateEntryDay, GateTicket, GateTicketSale, GateTicketType
 
 
 class GateTicketTypeSerializer(serializers.ModelSerializer):
-    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.00"))
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
 
     class Meta:
         model = GateTicketType
@@ -19,6 +19,11 @@ class GateEntryDaySerializer(serializers.ModelSerializer):
         model = GateEntryDay
         fields = ["id", "visit_date", "daily_capacity", "is_open", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_visit_date(self, value):
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Visit date cannot be in the past.")
+        return value
 
 
 class GateTicketSaleItemSerializer(serializers.Serializer):
