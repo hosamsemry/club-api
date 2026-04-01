@@ -22,6 +22,11 @@ class RegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError("A user with this username already exists.")
         return value
 
+    def validate_club_name(self, value):
+        if Club.all_objects.filter(name__iexact=value).exists():
+            raise serializers.ValidationError("A club with this name already exists.")
+        return value
+
     @transaction.atomic
     def create(self, validated_data):
         club = Club.objects.create(
