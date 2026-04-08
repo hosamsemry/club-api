@@ -137,7 +137,7 @@ class CategoryViewSet(TenantModelViewSet):
 
 
 class ProductViewSet(TenantModelViewSet):
-    queryset = Product.objects.select_related("category", "club")
+    queryset = Product.objects.select_related("category", "club").order_by("-is_best_seller", "-total_sold_30d")
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager", "cashier"]
