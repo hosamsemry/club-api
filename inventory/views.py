@@ -18,6 +18,20 @@ from rest_framework.filters import SearchFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 
+
+def invalidate_stock_movement_cache(club_id):
+    cache.delete_pattern(f"stock_movements:{club_id}:*")
+
+
+def invalidate_category_cache(club_id):
+    cache.delete_pattern(f"categories:{club_id}:*")
+
+
+def invalidate_product_cache(club_id):
+    cache.delete_pattern(f"products:{club_id}:*")
+    cache.delete(f"dashboard_summary:{club_id}")
+
+
 class StockMovementViewSet(TenantModelViewSet):
     queryset = StockMovement.objects.select_related(
         "product",
@@ -41,10 +55,9 @@ class StockMovementViewSet(TenantModelViewSet):
             note=validated.get("note", ""),
         )
         club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"stock_movements:{club_id}:{user_id}:*")
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")
+        invalidate_stock_movement_cache(club_id)
+        invalidate_product_cache(club_id)
         return movement
 
     def update(self, request, *args, **kwargs):
@@ -54,11 +67,10 @@ class StockMovementViewSet(TenantModelViewSet):
         raise MethodNotAllowed("Stock movements cannot be updated")
     
     def list(self, request, *args, **kwargs):
-        user_id = request.user.id
         club_id = request.user.club_id
 
         query_string = request.GET.urlencode()
-        cache_key = f"stock_movements:{club_id}:{user_id}:{query_string}"
+        cache_key = f"stock_movements:{club_id}:{query_string}"
 
         cached_data = cache.get(cache_key)
         if cached_data is not None:
@@ -82,40 +94,36 @@ class CategoryViewSet(TenantModelViewSet):
     def perform_create(self, serializer):
         category = serializer.save(club=self.request.user.club)
         club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"categories:{club_id}:{user_id}:*")
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")  
+        invalidate_category_cache(club_id)
+        invalidate_product_cache(club_id)
 
         return category
     
     def perform_update(self, serializer):
         category = serializer.save(club=self.request.user.club)
         club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"categories:{club_id}:{user_id}:*")
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")  
+        invalidate_category_cache(club_id)
+        invalidate_product_cache(club_id)
 
         return category
     
     def perform_destroy(self, instance):
         if instance.products.exists():
             raise ValidationError("Cannot delete category that has products assigned to it. Please reassign or permanently delete all products first.")
-        
+
         instance.delete()
         club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"categories:{club_id}:{user_id}:*")
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")
+        invalidate_category_cache(club_id)
+        invalidate_product_cache(club_id)
 
     def list(self, request, *args, **kwargs):
-        user_id = request.user.id
         club_id = request.user.club_id
 
         query_string = request.GET.urlencode()
-        cache_key = f"categories:{club_id}:{user_id}:{query_string}"
+        cache_key = f"categories:{club_id}:{query_string}"
 
         cached_data = cache.get(cache_key)
         if cached_data is not None:
@@ -141,11 +149,10 @@ class ProductViewSet(TenantModelViewSet):
         product = serializer.save(club=self.request.user.club)
         if product.stock_quantity < 0:
             raise ValidationError("Stock quantity cannot be negative on creation")
-        
-        club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")
+        club_id = self.request.user.club_id
+
+        invalidate_product_cache(club_id)
 
         return product
 
@@ -153,11 +160,10 @@ class ProductViewSet(TenantModelViewSet):
         product = serializer.save(club=self.request.user.club)
         if product.stock_quantity < 0:
             raise ValidationError("Stock quantity cannot be negative after update")
-        
-        club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")
+        club_id = self.request.user.club_id
+
+        invalidate_product_cache(club_id)
 
         return product
     
@@ -166,16 +172,14 @@ class ProductViewSet(TenantModelViewSet):
         instance.save()
 
         club_id = self.request.user.club_id
-        user_id = self.request.user.id
 
-        cache.delete_pattern(f"products:{club_id}:{user_id}:*")
-    
+        invalidate_product_cache(club_id)
+
     def list(self, request, *args, **kwargs):
-        user_id = request.user.id
         club_id = request.user.club_id
 
         query_string = request.GET.urlencode()
-        cache_key = f"products:{club_id}:{user_id}:{query_string}"
+        cache_key = f"products:{club_id}:{query_string}"
 
         cached_data = cache.get(cache_key)
         if cached_data is not None:
