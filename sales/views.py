@@ -1,3 +1,7 @@
+from inventory.models import Product
+
+from django.core.cache import cache
+
 from rest_framework import status, permissions
 from rest_framework.response import Response
 from core.views import TenantModelViewSet
@@ -10,7 +14,7 @@ from .filters import SaleFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter, SearchFilter
 from django.utils import timezone
-from django.db.models import Sum, Count, F, DecimalField, ExpressionWrapper
+from django.db.models import Sum, Count, F, DecimalField, ExpressionWrapper, Case, When, Value, BooleanField
 
 
 class SaleViewSet(TenantModelViewSet):
@@ -40,8 +44,21 @@ class SaleViewSet(TenantModelViewSet):
             items=serializer.validated_data["items"],
             note=serializer.validated_data.get("note", ""),
         )
+        for item in serializer.validated_data["items"]:
+            qty = item["quantity"]
+            Product.objects.filter(pk=item["product_id"]).update(
+                total_sold_30d=F("total_sold_30d") + qty,
+                is_best_seller=Case(
+                    When(total_sold_30d__gte=max(0, 10 - qty), then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+            )
 
         output = SaleReadSerializer(sale, context=self.get_serializer_context())
+        club_id = request.user.club_id
+        cache.delete_pattern(f"products:{club_id}:*")
+        cache.delete(f"dashboard_summary:{club_id}")
         return Response(output.data, status=status.HTTP_201_CREATED)
 
     @action(
