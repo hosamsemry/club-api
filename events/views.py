@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.response import Response
+from django.core.cache import cache
 from core.permissions import RolePermission
 from core.views import TenantModelViewSet
 from events.filters import VenueReservationFilter
@@ -16,6 +17,15 @@ from events.serializers import (
     VenueReservationWriteSerializer,
 )
 from events.services.reservation_service import ReservationService
+
+
+def invalidate_occasion_type_cache(club_id):
+    cache.delete_pattern(f"occasion_types:{club_id}:*")
+
+
+def invalidate_venue_reservation_cache(club_id):
+    cache.delete_pattern(f"venue_reservations:{club_id}:*")
+    cache.delete(f"dashboard_summary:{club_id}")
 
 
 class OccasionTypeViewSet(TenantModelViewSet):
@@ -35,6 +45,8 @@ class OccasionTypeViewSet(TenantModelViewSet):
             occasion_type=occasion_type,
             user=self.request.user,
         )
+        club_id = self.request.user.club_id
+        invalidate_occasion_type_cache(club_id)
 
     def perform_update(self, serializer):
         previous = self.get_object()
@@ -45,9 +57,24 @@ class OccasionTypeViewSet(TenantModelViewSet):
             user=self.request.user,
             deactivated=was_active and not occasion_type.is_active,
         )
+        club_id = self.request.user.club_id
+        invalidate_occasion_type_cache(club_id)
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Occasion types cannot be deleted.")
+    
+    def list(self, request, *args, **kwargs):
+        club_id = request.user.club_id
+
+        query_string = request.GET.urlencode()
+        cache_key = f"occasion_types:{club_id}:{query_string}"
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=3600)
+        return response
 
 
 class VenueReservationViewSet(TenantModelViewSet):
@@ -83,6 +110,8 @@ class VenueReservationViewSet(TenantModelViewSet):
             **serializer.validated_data,
         )
         output = VenueReservationReadSerializer(reservation, context=self.get_serializer_context())
+        club_id = request.user.club_id
+        invalidate_venue_reservation_cache(club_id)
         return Response(output.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
@@ -106,10 +135,13 @@ class VenueReservationViewSet(TenantModelViewSet):
             **data,
         )
         output = VenueReservationReadSerializer(reservation, context=self.get_serializer_context())
+        club_id = request.user.club_id
+        invalidate_venue_reservation_cache(club_id)
         return Response(output.data, status=status.HTTP_200_OK)
 
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
+        club_id = request.user.club_id
         return self.update(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="record-payment")
@@ -124,6 +156,8 @@ class VenueReservationViewSet(TenantModelViewSet):
             note=serializer.validated_data.get("note", ""),
         )
         output = VenueReservationReadSerializer(reservation, context=self.get_serializer_context())
+        club_id = request.user.club_id
+        invalidate_venue_reservation_cache(club_id)
         return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="cancel")
@@ -138,7 +172,22 @@ class VenueReservationViewSet(TenantModelViewSet):
             note=serializer.validated_data.get("note", ""),
         )
         output = VenueReservationReadSerializer(reservation, context=self.get_serializer_context())
+        club_id = request.user.club_id
+        invalidate_venue_reservation_cache(club_id)
         return Response(output.data, status=status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         raise MethodNotAllowed(request.method, detail="Reservations cannot be deleted.")
+    
+    def list(self, request, *args, **kwargs):
+        club_id = request.user.club_id
+
+        query_string = request.GET.urlencode()
+        cache_key = f"venue_reservations:{club_id}:{query_string}"
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=3600)
+        return response
