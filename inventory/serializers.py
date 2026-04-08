@@ -23,7 +23,13 @@ class ProductSerializer(serializers.ModelSerializer):
             "selling_price",
             "stock_quantity",
             "is_active",
+            "total_sold_30d",
+            "is_best_seller",
             "low_stock_threshold",
+        ]
+        read_only_fields = [
+            "total_sold_30d",
+            "is_best_seller",
         ]
 
     def validate_cost_price(self, value):
@@ -47,7 +53,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StockMovement
-        fields = ["id", "product_name", "movement_type", "quantity", "direction", "note", "created_at"]
+        fields = ["id", "product", "product_name", "movement_type", "quantity", "direction", "note", "created_at"]
 
     def validate(self, attrs):
         movement_type = attrs.get("movement_type")
