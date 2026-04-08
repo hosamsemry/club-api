@@ -36,7 +36,9 @@ class Product(TenantBaseModel):
     stock_quantity = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     low_stock_threshold = models.PositiveIntegerField(default=10)
-
+    total_sold_30d = models.PositiveIntegerField(default=0)
+    is_best_seller = models.BooleanField(default=False)
+    
     def __str__(self):
         return self.name
 
