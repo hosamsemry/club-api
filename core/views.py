@@ -7,6 +7,7 @@ from rest_framework import viewsets
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.core.cache import cache
 from core.models import AuditLog
 from core.permissions import RolePermission
 from core.serializers import (
@@ -78,7 +79,11 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager"]
 
-    def list(self, request):
+    def list(self, request, *args, **kwargs):
+        cache_key = f"dashboard_summary:{request.user.club_id}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
         user = request.user
         if not user.is_authenticated or not user.club_id:
             return Response({"detail": "Unauthorized"}, status=401)
@@ -126,4 +131,5 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
             item["user_email"] = item.pop("user__email")
 
         serializer = self.get_serializer(data)
+        cache.set(cache_key, serializer.data, timeout=300)  # Cache for 5 minutes
         return Response(serializer.data)
