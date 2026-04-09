@@ -17,7 +17,7 @@ from reporting.services.export_service import ReportExportService
 from reporting.services.revenue_range_service import RevenueRangeService
 from sales.models import Sale
 from sales.services.sale_service import SaleService
-from tickets.models import GateTicketSale
+from tickets.models import GateTicket, GateTicketSale, GateTicketType
 
 
 User = get_user_model()
@@ -43,6 +43,12 @@ class DailyReportServiceTests(TestCase):
             club=self.club,
             role="owner",
         )
+        self.occasion_type = OccasionType.objects.create(club=self.club, name="Wedding")
+        self.ticket_type = GateTicketType.objects.create(
+            club=self.club,
+            name="Adult",
+            price=Decimal("50.00"),
+        )
 
     def test_generates_report_for_requested_local_date(self):
         sale = SaleService.create_sale(
@@ -57,6 +63,44 @@ class DailyReportServiceTests(TestCase):
         AuditLog.objects.filter(action="sale_created", details__sale_id=sale.id).update(
             created_at=datetime(2026, 3, 10, 7, 5, tzinfo=dt_timezone.utc)
         )
+        ticket_sale = GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Ticket Buyer",
+            buyer_phone="01000000000",
+            visit_date=date(2026, 3, 10),
+            total_amount=Decimal("100.00"),
+            status=GateTicketSale.STATUS_ISSUED,
+            created_by=self.owner,
+        )
+        GateTicketSale.objects.filter(pk=ticket_sale.pk).update(
+            created_at=datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc)
+        )
+        ticket = GateTicket.objects.create(
+            club=self.club,
+            sale=ticket_sale,
+            ticket_type=self.ticket_type,
+            visit_date=date(2026, 3, 10),
+            code="TICKET-0001",
+            status=GateTicket.STATUS_CHECKED_IN,
+            checked_in_at=datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc),
+            checked_in_by=self.owner,
+        )
+        GateTicket.objects.filter(pk=ticket.pk).update(
+            created_at=datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc)
+        )
+        VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Ahmed",
+            guest_phone="01000000001",
+            starts_at=datetime(2026, 3, 10, 18, 0, tzinfo=dt_timezone.utc),
+            ends_at=datetime(2026, 3, 10, 22, 0, tzinfo=dt_timezone.utc),
+            guest_count=120,
+            total_amount=Decimal("500.00"),
+            paid_amount=Decimal("300.00"),
+            status=VenueReservation.STATUS_CONFIRMED,
+            created_by=self.owner,
+        )
 
         report = DailyReportService.generate_for_club(
             club=self.club,
@@ -67,6 +111,18 @@ class DailyReportServiceTests(TestCase):
         self.assertEqual(report.sales_count, 1)
         self.assertEqual(report.total_revenue, Decimal("20.00"))
         self.assertEqual(report.audit_action_counts["sale_created"], 1)
+        self.assertEqual(report.revenue_breakdown["products"], "20.00")
+        self.assertEqual(report.revenue_breakdown["tickets"], "100.00")
+        self.assertEqual(report.revenue_breakdown["events"], "300.00")
+        self.assertEqual(report.revenue_breakdown["total_revenue"], "420.00")
+        self.assertEqual(report.activity_summary["items_sold"], 2)
+        self.assertEqual(report.activity_summary["tickets_checked_in"], 1)
+        self.assertEqual(report.activity_summary["event_reservations_count"], 1)
+        self.assertEqual(report.activity_summary["event_guest_count"], 120)
+        self.assertEqual(report.activity_summary["average_sale_value"], "20.00")
+        self.assertEqual(len(report.top_products), 1)
+        self.assertEqual(report.top_products[0]["product_name"], "Water")
+        self.assertEqual(report.top_products[0]["total_quantity_sold"], 2)
 
     def test_refund_reduces_revenue_on_refund_day(self):
         sale = SaleService.create_sale(
@@ -203,6 +259,9 @@ class DailyClubReportViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["id"], self.report.id)
+        self.assertIn("revenue_breakdown", response.data["results"][0])
+        self.assertIn("activity_summary", response.data["results"][0])
+        self.assertIn("top_products", response.data["results"][0])
 
     def test_cashier_cannot_access_reports(self):
         self.client.force_authenticate(self.cashier)
