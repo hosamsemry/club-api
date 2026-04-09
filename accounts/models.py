@@ -68,14 +68,12 @@ class User(AbstractUser):
 #  Owner
 
 # Full control
-# Can manage subscription
 # Can manage users
 
 # Manager
 
 # Can manage inventory
 # Can see reports
-# Cannot manage subscription
 
 # Cashier
 

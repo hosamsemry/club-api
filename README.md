@@ -19,7 +19,7 @@ A multi-tenant REST API for managing social clubs — covering inventory, point-
 api/
 ├── management/          # Django project settings, ASGI/WSGI, Celery app, root URLs
 ├── accounts/            # User model, registration, JWT login, club user CRUD
-├── clubs/               # Club & SubscriptionPlan models, TenantBaseModel base class
+├── clubs/               # Club model, TenantBaseModel base class
 ├── core/                # AuditLog, Dashboard, permissions, exception handler, middleware
 ├── events/              # OccasionType, VenueReservation, payments, cancellations
 ├── inventory/           # Product, Category, StockMovement, LowStockAlert
