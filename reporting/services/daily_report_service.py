@@ -7,9 +7,12 @@ from django.db.models import Count, Sum
 from django.utils import timezone
 
 from core.models import AuditLog
+from events.models import VenueReservation
 from reporting.models import DailyClubReport
 from reporting.services.export_service import ReportExportService
-from sales.models import Sale
+from reporting.services.revenue_range_service import RevenueRangeService
+from sales.models import Sale, SaleItem
+from tickets.models import GateTicket, GateTicketSale
 
 
 class DailyReportService:
@@ -113,6 +116,143 @@ class DailyReportService:
         return {row["action"]: row["count"] for row in action_rows}
 
     @staticmethod
+    def _revenue_breakdown(*, club, report_date):
+        result = RevenueRangeService.calculate(
+            club=club,
+            start_date=report_date,
+            end_date=report_date,
+            fields=["products", "tickets", "events"],
+        )
+        return {
+            "products": str(result["products"]),
+            "tickets": str(result["tickets"]),
+            "events": str(result["events"]),
+            "total_revenue": str(result["total_revenue"]),
+        }
+
+    @staticmethod
+    def _top_products(*, club, window_start, window_end, limit=5):
+        rows = (
+            SaleItem.objects.filter(
+                sale__club=club,
+                sale__created_at__gte=window_start,
+                sale__created_at__lt=window_end,
+            )
+            .exclude(sale__status="cancelled")
+            .values("product_id", "product__name", "product__sku")
+            .annotate(
+                total_quantity_sold=Sum("quantity"),
+                total_revenue=Sum("subtotal"),
+            )
+            .order_by("-total_quantity_sold", "-total_revenue", "product__name")[:limit]
+        )
+
+        return [
+            {
+                "product_id": row["product_id"],
+                "product_name": row["product__name"],
+                "product_sku": row["product__sku"],
+                "total_quantity_sold": row["total_quantity_sold"] or 0,
+                "total_revenue": str(row["total_revenue"] or Decimal("0.00")),
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def _activity_summary(*, club, window_start, window_end):
+        gross_sales_revenue = (
+            Sale.objects.filter(
+                club=club,
+                created_at__gte=window_start,
+                created_at__lt=window_end,
+            )
+            .exclude(status="cancelled")
+            .aggregate(total=Sum("total_amount"))["total"]
+            or Decimal("0.00")
+        )
+        refunds_total = (
+            Sale.objects.filter(
+                club=club,
+                refunded_at__gte=window_start,
+                refunded_at__lt=window_end,
+                status="refunded",
+            ).aggregate(total=Sum("total_amount"))["total"]
+            or Decimal("0.00")
+        )
+        net_product_revenue = gross_sales_revenue - refunds_total
+
+        sales_qs = Sale.objects.filter(
+            club=club,
+            created_at__gte=window_start,
+            created_at__lt=window_end,
+        ).exclude(status="cancelled")
+        sales_count = sales_qs.count()
+        sale_items = SaleItem.objects.filter(
+            sale__club=club,
+            sale__created_at__gte=window_start,
+            sale__created_at__lt=window_end,
+        ).exclude(sale__status="cancelled")
+        items_sold = sale_items.aggregate(total=Sum("quantity"))["total"] or 0
+        unique_products_sold = sale_items.values("product_id").distinct().count()
+
+        ticket_sales = GateTicketSale.objects.filter(
+            club=club,
+            created_at__gte=window_start,
+            created_at__lt=window_end,
+        )
+        tickets_created = GateTicket.objects.filter(
+            club=club,
+            created_at__gte=window_start,
+            created_at__lt=window_end,
+        )
+        reservations = VenueReservation.objects.filter(
+            club=club,
+            starts_at__gte=window_start,
+            starts_at__lt=window_end,
+        )
+        active_reservations = reservations.exclude(status=VenueReservation.STATUS_CANCELLED)
+        event_expected_revenue = active_reservations.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
+        event_collected_revenue = active_reservations.aggregate(total=Sum("paid_amount"))["total"] or Decimal("0.00")
+        event_refunds_total = reservations.aggregate(total=Sum("refunded_amount"))["total"] or Decimal("0.00")
+
+        average_sale_value = (
+            gross_sales_revenue / sales_count if sales_count else Decimal("0.00")
+        )
+
+        return {
+            "gross_sales_revenue": str(gross_sales_revenue),
+            "refunds_total": str(refunds_total),
+            "net_product_revenue": str(net_product_revenue),
+            "average_sale_value": str(average_sale_value.quantize(Decimal("0.01"))),
+            "items_sold": items_sold,
+            "unique_products_sold": unique_products_sold,
+            "refunded_sales_count": Sale.objects.filter(
+                club=club,
+                refunded_at__gte=window_start,
+                refunded_at__lt=window_end,
+                status="refunded",
+            ).count(),
+            "ticket_sales_count": ticket_sales.filter(status=GateTicketSale.STATUS_ISSUED).count(),
+            "voided_ticket_sales_count": ticket_sales.filter(status=GateTicketSale.STATUS_VOIDED).count(),
+            "tickets_issued": tickets_created.exclude(status=GateTicket.STATUS_VOIDED).count(),
+            "tickets_voided": tickets_created.filter(status=GateTicket.STATUS_VOIDED).count(),
+            "tickets_checked_in": GateTicket.objects.filter(
+                club=club,
+                checked_in_at__gte=window_start,
+                checked_in_at__lt=window_end,
+            ).count(),
+            "event_reservations_count": active_reservations.count(),
+            "cancelled_event_reservations": reservations.filter(
+                status=VenueReservation.STATUS_CANCELLED
+            ).count(),
+            "event_guest_count": active_reservations.aggregate(total=Sum("guest_count"))["total"] or 0,
+            "event_expected_revenue": str(event_expected_revenue),
+            "event_collected_revenue": str(event_collected_revenue),
+            "event_pending_balance": str(event_expected_revenue - event_collected_revenue),
+            "event_refunds_total": str(event_refunds_total),
+        }
+
+    @staticmethod
     @transaction.atomic
     def generate_for_club(*, club, report_date=None):
         if not club.is_active:
@@ -137,6 +277,20 @@ class DailyReportService:
                 ),
                 "audit_action_counts": DailyReportService._audit_action_counts(
                     club=club, window_start=window_start, window_end=window_end
+                ),
+                "revenue_breakdown": DailyReportService._revenue_breakdown(
+                    club=club,
+                    report_date=report_date,
+                ),
+                "activity_summary": DailyReportService._activity_summary(
+                    club=club,
+                    window_start=window_start,
+                    window_end=window_end,
+                ),
+                "top_products": DailyReportService._top_products(
+                    club=club,
+                    window_start=window_start,
+                    window_end=window_end,
                 ),
             },
         )
