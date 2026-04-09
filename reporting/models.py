@@ -22,6 +22,9 @@ class DailyClubReport(BaseModel):
     sales_count = models.PositiveIntegerField(default=0)
     total_revenue = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     audit_action_counts = models.JSONField(default=dict, blank=True)
+    revenue_breakdown = models.JSONField(default=dict, blank=True)
+    activity_summary = models.JSONField(default=dict, blank=True)
+    top_products = models.JSONField(default=list, blank=True)
     csv_file = models.FileField(upload_to=daily_report_csv_upload_to, null=True, blank=True)
     generated_at = models.DateTimeField(auto_now=True)
 
