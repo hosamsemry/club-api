@@ -23,6 +23,9 @@ class DailyClubReportSerializer(serializers.ModelSerializer):
             "sales_count",
             "total_revenue",
             "audit_action_counts",
+            "revenue_breakdown",
+            "activity_summary",
+            "top_products",
             "generated_at",
             "csv_file_url",
         ]
