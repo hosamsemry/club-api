@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
-from django.db.models import Count, Sum
+from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
 from core.permissions import RolePermission
@@ -62,6 +62,35 @@ class GateEntryDayViewSet(TenantModelViewSet):
     filterset_class = GateEntryDayFilter
     ordering_fields = ["visit_date", "daily_capacity", "created_at"]
     ordering = ["-visit_date"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.club_id:
+            GateEntryDay.objects.filter(
+                club=user.club,
+                visit_date__lt=timezone.localdate(),
+                is_open=True,
+            ).update(is_open=False)
+        return queryset.annotate(
+            sold_tickets=Count(
+                "club__tickets_gatetickets",
+                filter=Q(
+                    club__tickets_gatetickets__visit_date=F("visit_date"),
+                    club__tickets_gatetickets__status__in=[
+                        GateTicket.STATUS_ISSUED,
+                        GateTicket.STATUS_CHECKED_IN,
+                    ],
+                ),
+            ),
+            checked_in_tickets=Count(
+                "club__tickets_gatetickets",
+                filter=Q(
+                    club__tickets_gatetickets__visit_date=F("visit_date"),
+                    club__tickets_gatetickets__status=GateTicket.STATUS_CHECKED_IN,
+                ),
+            ),
+        )
 
     def perform_create(self, serializer):
         entry_day = serializer.save(club=self.request.user.club)
