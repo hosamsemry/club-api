@@ -7,3 +7,4 @@ class DailyClubReportAdmin(admin.ModelAdmin):
     list_display = ("club", "report_date", "sales_count", "total_revenue", "generated_at")
     list_filter = ("club", "report_date", "timezone")
     search_fields = ("club__name",)
+    readonly_fields = ("revenue_breakdown", "activity_summary", "top_products")
