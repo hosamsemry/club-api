@@ -32,6 +32,27 @@ class ReportExportService:
         writer.writerow(["sales_count", report.sales_count])
         writer.writerow(["total_revenue", str(report.total_revenue)])
         writer.writerow([])
+        writer.writerow(["revenue_breakdown", "amount"])
+        for label, amount in report.revenue_breakdown.items():
+            writer.writerow([label, amount])
+        writer.writerow([])
+        writer.writerow(["activity_metric", "value"])
+        for label, value in report.activity_summary.items():
+            writer.writerow([label, value])
+        writer.writerow([])
+        writer.writerow(["top_products"])
+        writer.writerow(["product_id", "product_name", "product_sku", "total_quantity_sold", "total_revenue"])
+        for row in report.top_products:
+            writer.writerow(
+                [
+                    row.get("product_id"),
+                    row.get("product_name"),
+                    row.get("product_sku"),
+                    row.get("total_quantity_sold"),
+                    row.get("total_revenue"),
+                ]
+            )
+        writer.writerow([])
         writer.writerow(["audit_action", "count"])
 
         for action, count in sorted(report.audit_action_counts.items()):
