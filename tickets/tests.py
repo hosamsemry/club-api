@@ -107,6 +107,90 @@ class GateTicketTests(APITestCase):
             GateEntryDay.objects.filter(club=self.club, visit_date=self.visit_date + timedelta(days=1)).exists()
         )
 
+    def test_manager_can_close_existing_past_entry_day(self):
+        past_date = timezone.localdate() - timedelta(days=1)
+        past_entry_day = GateEntryDay.objects.create(
+            club=self.club,
+            visit_date=past_date,
+            daily_capacity=10,
+            is_open=True,
+        )
+        self.client.force_authenticate(self.manager)
+
+        response = self.client.patch(
+            reverse("gateentryday-detail", args=[past_entry_day.id]),
+            {
+                "visit_date": past_date.isoformat(),
+                "is_open": False,
+            },
+            format="json",
+        )
+
+        past_entry_day.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(past_entry_day.is_open)
+
+    def test_entry_day_list_auto_closes_past_days(self):
+        past_entry_day = GateEntryDay.objects.create(
+            club=self.club,
+            visit_date=timezone.localdate() - timedelta(days=1),
+            daily_capacity=8,
+            is_open=True,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(reverse("gateentryday-list"))
+
+        past_entry_day.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(past_entry_day.is_open)
+        response_day = next(item for item in response.data["results"] if item["id"] == past_entry_day.id)
+        self.assertFalse(response_day["is_open"])
+
+    def test_entry_day_list_includes_total_sold_and_checked_in_tickets(self):
+        sale = GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name="Metrics Buyer",
+            buyer_phone="09999999999",
+            visit_date=self.visit_date,
+            total_amount=Decimal("300.00"),
+            status=GateTicketSale.STATUS_ISSUED,
+            created_by=self.cashier,
+        )
+        GateTicket.objects.create(
+            club=self.club,
+            sale=sale,
+            ticket_type=self.ticket_type,
+            visit_date=self.visit_date,
+            code="METRIC-1",
+            status=GateTicket.STATUS_ISSUED,
+        )
+        GateTicket.objects.create(
+            club=self.club,
+            sale=sale,
+            ticket_type=self.ticket_type,
+            visit_date=self.visit_date,
+            code="METRIC-2",
+            status=GateTicket.STATUS_CHECKED_IN,
+        )
+        GateTicket.objects.create(
+            club=self.club,
+            sale=sale,
+            ticket_type=self.ticket_type,
+            visit_date=self.visit_date,
+            code="METRIC-3",
+            status=GateTicket.STATUS_VOIDED,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(reverse("gateentryday-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_day = next(item for item in response.data["results"] if item["id"] == self.entry_day.id)
+        self.assertEqual(response_day["total_tickets"], 5)
+        self.assertEqual(response_day["sold_tickets"], 2)
+        self.assertEqual(response_day["checked_in_tickets"], 1)
+
     def test_cashier_can_create_sale_and_tickets(self):
         self.client.force_authenticate(self.cashier)
         response = self.client.post(
