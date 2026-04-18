@@ -496,6 +496,172 @@ class RevenueRangeServiceTests(TestCase):
         self.assertEqual(result["total_revenue"], Decimal("0.00"))
 
 
+class TransactionsViewSetTests(APITestCase):
+    def setUp(self):
+        self.club = Club.objects.create(name="Transactions Club", timezone="UTC")
+        self.other_club = Club.objects.create(name="Other Transactions Club", timezone="UTC")
+        self.owner = User.objects.create_user(
+            email="transactions_owner@example.com",
+            username="transactions_owner",
+            password="secret123",
+            club=self.club,
+            role="owner",
+        )
+        self.manager = User.objects.create_user(
+            email="transactions_manager@example.com",
+            username="transactions_manager",
+            password="secret123",
+            club=self.club,
+            role="manager",
+        )
+        self.cashier = User.objects.create_user(
+            email="transactions_cashier@example.com",
+            username="transactions_cashier",
+            password="secret123",
+            club=self.club,
+            role="cashier",
+        )
+        self.occasion_type = OccasionType.objects.create(club=self.club, name="Conference")
+        self.url = reverse("transactions-list")
+        self.export_url = reverse("transactions-export-csv")
+
+    def _create_sale(self, created_at, amount, sale_status="completed", refunded_at=None):
+        sale = Sale.objects.create(
+            club=self.club,
+            created_by=self.owner,
+            total_amount=amount,
+            status=sale_status,
+            refunded_at=refunded_at,
+        )
+        Sale.objects.filter(pk=sale.pk).update(created_at=created_at, refunded_at=refunded_at)
+        return sale
+
+    def _create_ticket_sale(self, created_at, amount, sale_status=GateTicketSale.STATUS_ISSUED, buyer_name="Ticket Buyer"):
+        ticket_sale = GateTicketSale.objects.create(
+            club=self.club,
+            buyer_name=buyer_name,
+            buyer_phone="01000000000",
+            visit_date=created_at.date(),
+            total_amount=amount,
+            status=sale_status,
+            created_by=self.owner,
+        )
+        GateTicketSale.objects.filter(pk=ticket_sale.pk).update(created_at=created_at)
+        return ticket_sale
+
+    def _create_reservation(
+        self,
+        created_at,
+        *,
+        total_amount=Decimal("500.00"),
+        paid_amount=Decimal("300.00"),
+        refunded_amount=Decimal("0.00"),
+        reservation_status=VenueReservation.STATUS_CONFIRMED,
+        payment_status=VenueReservation.PAYMENT_PAID,
+        refunded_at=None,
+    ):
+        reservation = VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Event Guest",
+            guest_phone="01000000001",
+            starts_at=created_at + timedelta(days=1),
+            ends_at=created_at + timedelta(days=1, hours=4),
+            guest_count=120,
+            total_amount=total_amount,
+            paid_amount=paid_amount,
+            refunded_amount=refunded_amount,
+            status=reservation_status,
+            payment_status=payment_status,
+            refunded_at=refunded_at,
+            created_by=self.owner,
+        )
+        VenueReservation.objects.filter(pk=reservation.pk).update(created_at=created_at, refunded_at=refunded_at)
+        return reservation
+
+    def test_owner_can_list_combined_transactions(self):
+        self._create_sale(datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc), Decimal("100.00"))
+        self._create_ticket_sale(datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc), Decimal("150.00"))
+        self._create_reservation(datetime(2026, 3, 10, 11, 0, tzinfo=dt_timezone.utc))
+        self._create_sale(
+            datetime(2026, 3, 8, 12, 0, tzinfo=dt_timezone.utc),
+            Decimal("80.00"),
+            sale_status="refunded",
+            refunded_at=datetime(2026, 3, 10, 12, 30, tzinfo=dt_timezone.utc),
+        )
+        Sale.objects.create(
+            club=self.other_club,
+            created_by=self.owner,
+            total_amount=Decimal("999.00"),
+            status="completed",
+        )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 4)
+        self.assertEqual(
+            {row["source"] for row in response.data["results"]},
+            {"products", "tickets", "events"},
+        )
+        self.assertEqual(response.data["results"][0]["status"], "refunded")
+
+    def test_filters_by_source_and_search(self):
+        self._create_ticket_sale(
+            datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc),
+            Decimal("150.00"),
+            buyer_name="Mariam",
+        )
+        self._create_ticket_sale(
+            datetime(2026, 3, 10, 12, 0, tzinfo=dt_timezone.utc),
+            Decimal("75.00"),
+            buyer_name="Omar",
+        )
+
+        self.client.force_authenticate(self.manager)
+        response = self.client.get(
+            self.url,
+            {
+                "start_date": "2026-03-10",
+                "end_date": "2026-03-10",
+                "source": "tickets",
+                "search": "mariam",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["customer_name"], "Mariam")
+        self.assertEqual(response.data["results"][0]["source"], "tickets")
+
+    def test_cashier_cannot_access_transactions(self):
+        self.client.force_authenticate(self.cashier)
+
+        response = self.client.get(
+            self.url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_csv_returns_downloadable_file(self):
+        self._create_sale(datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc), Decimal("100.00"))
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.export_url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn("transactions-2026-03-10-to-2026-03-10.csv", response["Content-Disposition"])
+
+
 class RevenueViewSetTests(APITestCase):
     def setUp(self):
         self.club = Club.objects.create(name="API Revenue Club", timezone="UTC")
