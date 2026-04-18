@@ -4,6 +4,7 @@ from reporting.models import DailyClubReport
 
 
 REVENUE_FIELD_CHOICES = ("tickets", "products", "events")
+TRANSACTION_SOURCE_CHOICES = REVENUE_FIELD_CHOICES
 
 
 class DailyClubReportSerializer(serializers.ModelSerializer):
@@ -61,6 +62,46 @@ class RevenueQuerySerializer(serializers.Serializer):
                 unique_fields.append(f)
         attrs["fields"] = unique_fields
         return attrs
+
+
+class TransactionsQuerySerializer(serializers.Serializer):
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    source = serializers.ChoiceField(
+        choices=(("all", "All"),) + tuple((choice, choice.title()) for choice in TRANSACTION_SOURCE_CHOICES),
+        required=False,
+        default="all",
+    )
+    status = serializers.CharField(required=False, allow_blank=True)
+    search = serializers.CharField(required=False, allow_blank=True)
+    ordering = serializers.ChoiceField(
+        choices=("-activity_at", "activity_at", "-net_amount", "net_amount"),
+        required=False,
+        default="-activity_at",
+    )
+
+    def validate(self, attrs):
+        if attrs["start_date"] > attrs["end_date"]:
+            raise serializers.ValidationError(
+                {"end_date": "End date must be on or after start date."}
+            )
+        return attrs
+
+
+class TransactionRowSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    source = serializers.ChoiceField(choices=TRANSACTION_SOURCE_CHOICES)
+    transaction_id = serializers.IntegerField()
+    reference = serializers.CharField()
+    activity_at = serializers.DateTimeField()
+    status = serializers.CharField()
+    customer_name = serializers.CharField(allow_blank=True)
+    customer_phone = serializers.CharField(allow_blank=True)
+    created_by_email = serializers.CharField(allow_blank=True)
+    gross_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    refund_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    net_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    summary = serializers.CharField()
 
 
 class RevenueResponseSerializer(serializers.Serializer):
