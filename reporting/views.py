@@ -1,4 +1,4 @@
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,10 +9,13 @@ from reporting.serializers import (
     DailyClubReportSerializer,
     RevenueQuerySerializer,
     RevenueResponseSerializer,
+    TransactionRowSerializer,
+    TransactionsQuerySerializer,
 )
 from reporting.services.daily_report_service import DailyReportService
 from reporting.services.export_service import ReportExportService
 from reporting.services.revenue_range_service import RevenueRangeService
+from reporting.services.transaction_history_service import UnifiedTransactionsService
 from reporting.tasks import regenerate_daily_report_for_club
 
 
@@ -90,3 +93,50 @@ class RevenueViewSet(viewsets.ViewSet):
 
         response_serializer = RevenueResponseSerializer(result)
         return Response(response_serializer.data)
+
+
+class TransactionsViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated, RolePermission]
+    required_roles = ["owner", "manager"]
+    serializer_class = TransactionRowSerializer
+
+    def _get_rows(self, request):
+        query_serializer = TransactionsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        data = query_serializer.validated_data
+        rows = UnifiedTransactionsService.list_transactions(
+            club=request.user.club,
+            start_date=data["start_date"],
+            end_date=data["end_date"],
+            source=data.get("source", "all"),
+            status=data.get("status", ""),
+            search=data.get("search", ""),
+            ordering=data.get("ordering", "-activity_at"),
+        )
+        return data, rows
+
+    def list(self, request):
+        _, rows = self._get_rows(request)
+        page = self.paginate_queryset(rows)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(rows, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="export/csv")
+    def export_csv(self, request):
+        data, rows = self._get_rows(request)
+        csv_content = ReportExportService.build_transactions_csv(
+            rows=rows,
+            start_date=data["start_date"],
+            end_date=data["end_date"],
+            source=data.get("source", "all"),
+        )
+        filename = (
+            f"transactions-{data['start_date'].isoformat()}-to-{data['end_date'].isoformat()}.csv"
+        )
+        response = HttpResponse(csv_content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
