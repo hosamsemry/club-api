@@ -64,3 +64,48 @@ class ReportExportService:
         file_name = os.path.basename(f"daily-report-{report.report_date}.csv")
         report.csv_file.save(file_name, content, save=True)
         return report
+
+    @staticmethod
+    def build_transactions_csv(*, rows, start_date, end_date, source="all"):
+        buffer = StringIO()
+        writer = csv.writer(buffer)
+
+        writer.writerow(["report_type", "transactions"])
+        writer.writerow(["start_date", start_date.isoformat()])
+        writer.writerow(["end_date", end_date.isoformat()])
+        writer.writerow(["source", source])
+        writer.writerow([])
+        writer.writerow(
+            [
+                "reference",
+                "source",
+                "status",
+                "customer_name",
+                "customer_phone",
+                "summary",
+                "gross_amount",
+                "refund_amount",
+                "net_amount",
+                "activity_at",
+                "created_by_email",
+            ]
+        )
+
+        for row in rows:
+            writer.writerow(
+                [
+                    row.get("reference"),
+                    row.get("source"),
+                    row.get("status"),
+                    row.get("customer_name"),
+                    row.get("customer_phone"),
+                    row.get("summary"),
+                    row.get("gross_amount"),
+                    row.get("refund_amount"),
+                    row.get("net_amount"),
+                    row.get("activity_at").isoformat() if row.get("activity_at") else "",
+                    row.get("created_by_email"),
+                ]
+            )
+
+        return buffer.getvalue().encode("utf-8")
