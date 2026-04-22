@@ -8,6 +8,50 @@ from events.models import VenueReservation
 
 class ReservationService:
     @staticmethod
+    @transaction.atomic
+    def cancel_expired_pending_reservations(*, club, now=None):
+        now = now or timezone.now()
+        expired_reservations = list(
+            VenueReservation.objects.select_for_update().filter(
+                club=club,
+                status=VenueReservation.STATUS_PENDING,
+                starts_at__lt=now,
+            )
+        )
+        if not expired_reservations:
+            return 0
+
+        for reservation in expired_reservations:
+            reservation.status = VenueReservation.STATUS_CANCELLED
+            reservation.cancelled_at = now
+            reservation.updated_at = now
+            reservation.payment_status = ReservationService._derive_payment_status(
+                status=reservation.status,
+                total_amount=reservation.total_amount,
+                paid_amount=reservation.paid_amount,
+            )
+
+        VenueReservation.objects.bulk_update(
+            expired_reservations,
+            ["status", "cancelled_at", "payment_status", "updated_at"],
+        )
+
+        for reservation in expired_reservations:
+            AuditService.log(
+                action="reservation_cancelled",
+                club=reservation.club,
+                user=None,
+                details={
+                    "reservation_id": reservation.id,
+                    "refund_amount": "0.00",
+                    "paid_amount": str(reservation.paid_amount),
+                    "note": "Automatically cancelled after the start time passed while still pending.",
+                },
+            )
+
+        return len(expired_reservations)
+
+    @staticmethod
     def _derive_payment_status(*, status, total_amount, paid_amount):
         if status == VenueReservation.STATUS_CANCELLED and paid_amount == Decimal("0.00"):
             return VenueReservation.PAYMENT_REFUNDED
