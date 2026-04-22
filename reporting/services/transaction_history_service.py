@@ -31,6 +31,13 @@ class UnifiedTransactionsService:
         return Decimal(str(value))
 
     @classmethod
+    def _cost_total(cls, items):
+        total = Decimal("0.00")
+        for item in items:
+            total += cls._money(item.cost_price) * Decimal(item.quantity)
+        return total
+
+    @classmethod
     def _product_rows(cls, *, club, utc_start, utc_end):
         sales = (
             Sale.objects.filter(club=club)
@@ -51,13 +58,15 @@ class UnifiedTransactionsService:
             )
             activity_at = sale.refunded_at if is_refund_event else sale.created_at
             gross_amount = cls._money(sale.total_amount)
+            cost_total = cls._cost_total(sale.items.all())
             refund_amount = gross_amount if is_refund_event else Decimal("0.00")
+            profit_amount = gross_amount - cost_total
             if sale.status == "cancelled":
                 net_amount = Decimal("0.00")
             elif is_refund_event:
-                net_amount = -gross_amount
+                net_amount = -profit_amount
             else:
-                net_amount = gross_amount
+                net_amount = profit_amount
 
             item_parts = [f"{item.quantity}× {item.product.name}" for item in sale.items.all()]
             summary = ", ".join(item_parts[:2]) if item_parts else "Product sale"
