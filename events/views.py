@@ -91,6 +91,13 @@ class VenueReservationViewSet(TenantModelViewSet):
     ordering = ["-starts_at"]
     search_fields = ["guest_name", "guest_phone", "occasion_type__name", "notes"]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+        if user.is_authenticated and user.club_id:
+            ReservationService.cancel_expired_pending_reservations(club=user.club)
+        return queryset
+
     def get_serializer_class(self):
         if self.action in {"create", "update", "partial_update"}:
             return VenueReservationWriteSerializer
@@ -127,6 +134,7 @@ class VenueReservationViewSet(TenantModelViewSet):
             "ends_at": serializer.validated_data.get("ends_at", instance.ends_at),
             "guest_count": serializer.validated_data.get("guest_count", instance.guest_count),
             "total_amount": serializer.validated_data.get("total_amount", instance.total_amount),
+            "paid_amount": instance.paid_amount,
             "notes": serializer.validated_data.get("notes", instance.notes),
         }
         reservation = ReservationService.update_reservation(
@@ -181,6 +189,11 @@ class VenueReservationViewSet(TenantModelViewSet):
     
     def list(self, request, *args, **kwargs):
         club_id = request.user.club_id
+        expired_count = ReservationService.cancel_expired_pending_reservations(
+            club=request.user.club
+        )
+        if expired_count:
+            invalidate_venue_reservation_cache(club_id)
 
         query_string = request.GET.urlencode()
         cache_key = f"venue_reservations:{club_id}:{query_string}"
