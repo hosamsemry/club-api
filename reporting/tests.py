@@ -14,8 +14,9 @@ from inventory.models import Category, Product
 from reporting.models import DailyClubReport
 from reporting.services.daily_report_service import DailyReportService
 from reporting.services.export_service import ReportExportService
+from reporting.services.transaction_history_service import UnifiedTransactionsService
 from reporting.services.revenue_range_service import RevenueRangeService
-from sales.models import Sale
+from sales.models import Sale, SaleItem
 from sales.services.sale_service import SaleService
 from tickets.models import GateTicket, GateTicketSale, GateTicketType
 
@@ -500,6 +501,16 @@ class TransactionsViewSetTests(APITestCase):
     def setUp(self):
         self.club = Club.objects.create(name="Transactions Club", timezone="UTC")
         self.other_club = Club.objects.create(name="Other Transactions Club", timezone="UTC")
+        self.category = Category.objects.create(club=self.club, name="Snacks")
+        self.product = Product.objects.create(
+            club=self.club,
+            category=self.category,
+            name="Juice",
+            sku="JUICE-1",
+            cost_price=Decimal("10.00"),
+            selling_price=Decimal("15.00"),
+            stock_quantity=50,
+        )
         self.owner = User.objects.create_user(
             email="transactions_owner@example.com",
             username="transactions_owner",
@@ -525,13 +536,31 @@ class TransactionsViewSetTests(APITestCase):
         self.url = reverse("transactions-list")
         self.export_url = reverse("transactions-export-csv")
 
-    def _create_sale(self, created_at, amount, sale_status="completed", refunded_at=None):
+    def _create_sale(
+        self,
+        created_at,
+        amount,
+        sale_status="completed",
+        refunded_at=None,
+        *,
+        quantity=1,
+        cost_price=Decimal("10.00"),
+        unit_price=Decimal("15.00"),
+    ):
         sale = Sale.objects.create(
             club=self.club,
             created_by=self.owner,
             total_amount=amount,
             status=sale_status,
             refunded_at=refunded_at,
+        )
+        SaleItem.objects.create(
+            sale=sale,
+            product=self.product,
+            quantity=quantity,
+            cost_price=cost_price,
+            unit_price=unit_price,
+            subtotal=amount,
         )
         Sale.objects.filter(pk=sale.pk).update(created_at=created_at, refunded_at=refunded_at)
         return sale
@@ -610,6 +639,27 @@ class TransactionsViewSetTests(APITestCase):
         )
         self.assertEqual(response.data["results"][0]["status"], "refunded")
 
+    def test_product_transactions_use_profit_for_net_amount(self):
+        self._create_sale(
+            datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc),
+            Decimal("15.00"),
+            quantity=1,
+            cost_price=Decimal("10.00"),
+            unit_price=Decimal("15.00"),
+        )
+
+        rows = UnifiedTransactionsService.list_transactions(
+            club=self.club,
+            start_date=date(2026, 3, 10),
+            end_date=date(2026, 3, 10),
+            source="products",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["gross_amount"], Decimal("15.00"))
+        self.assertEqual(rows[0]["refund_amount"], Decimal("0.00"))
+        self.assertEqual(rows[0]["net_amount"], Decimal("5.00"))
+
     def test_filters_by_source_and_search(self):
         self._create_ticket_sale(
             datetime(2026, 3, 10, 10, 0, tzinfo=dt_timezone.utc),
@@ -660,6 +710,25 @@ class TransactionsViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("text/csv", response["Content-Type"])
         self.assertIn("transactions-2026-03-10-to-2026-03-10.csv", response["Content-Disposition"])
+
+    def test_export_csv_appends_totals_row(self):
+        self._create_sale(
+            datetime(2026, 3, 10, 9, 0, tzinfo=dt_timezone.utc),
+            Decimal("15.00"),
+            quantity=1,
+            cost_price=Decimal("10.00"),
+            unit_price=Decimal("15.00"),
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(
+            self.export_url,
+            {"start_date": "2026-03-10", "end_date": "2026-03-10", "source": "products"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        content = response.content.decode("utf-8")
+        self.assertIn("TOTALS,15.00,0.00,5.00", content)
 
 
 class RevenueViewSetTests(APITestCase):
