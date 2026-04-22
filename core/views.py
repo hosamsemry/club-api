@@ -15,6 +15,7 @@ from core.serializers import (
     DashboardSummarySerializer,
 )
 from events.models import VenueReservation
+from events.services.reservation_service import ReservationService
 from inventory.models import LowStockAlert, Product
 from tickets.models import GateTicket, GateTicketSale
 
@@ -89,6 +90,7 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"detail": "Unauthorized"}, status=401)
 
         club = user.club
+        ReservationService.cancel_expired_pending_reservations(club=club)
         club_timezone = ZoneInfo(club.timezone or "UTC")
         today = timezone.now().astimezone(club_timezone).date()
 
