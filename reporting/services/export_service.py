@@ -1,5 +1,6 @@
 import csv
 import os
+from decimal import Decimal
 from io import StringIO
 
 from django.core.files.base import ContentFile
@@ -91,7 +92,17 @@ class ReportExportService:
             ]
         )
 
+        gross_total = Decimal("0.00")
+        refund_total = Decimal("0.00")
+        net_total = Decimal("0.00")
+
         for row in rows:
+            gross_amount = row.get("gross_amount") or Decimal("0.00")
+            refund_amount = row.get("refund_amount") or Decimal("0.00")
+            net_amount = row.get("net_amount") or Decimal("0.00")
+            gross_total += gross_amount
+            refund_total += refund_amount
+            net_total += net_amount
             writer.writerow(
                 [
                     row.get("reference"),
@@ -100,12 +111,28 @@ class ReportExportService:
                     row.get("customer_name"),
                     row.get("customer_phone"),
                     row.get("summary"),
-                    row.get("gross_amount"),
-                    row.get("refund_amount"),
-                    row.get("net_amount"),
+                    gross_amount,
+                    refund_amount,
+                    net_amount,
                     row.get("activity_at").isoformat() if row.get("activity_at") else "",
                     row.get("created_by_email"),
                 ]
             )
+
+        writer.writerow(
+            [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "TOTALS",
+                gross_total,
+                refund_total,
+                net_total,
+                "",
+                "",
+            ]
+        )
 
         return buffer.getvalue().encode("utf-8")
