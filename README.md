@@ -193,4 +193,4 @@ List endpoints return paginated responses:
 
 ## License
 
-Private — all rights reserved.
+All rights reserved.
