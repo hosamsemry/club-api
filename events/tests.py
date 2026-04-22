@@ -207,6 +207,39 @@ class VenueReservationTests(APITestCase):
         self.assertEqual(reservation.payment_status, VenueReservation.PAYMENT_PAID)
         self.assertEqual(reservation.paid_amount, Decimal("3000.00"))
 
+    def test_partial_update_preserves_paid_amount(self):
+        reservation = VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Original Name",
+            guest_phone="01666666666",
+            starts_at=self.starts_at,
+            ends_at=self.ends_at,
+            guest_count=80,
+            total_amount=Decimal("3000.00"),
+            paid_amount=Decimal("1000.00"),
+            status=VenueReservation.STATUS_PENDING,
+            payment_status=VenueReservation.PAYMENT_PARTIAL,
+            created_by=self.owner,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.patch(
+            reverse("venuereservation-detail", args=[reservation.id]),
+            {
+                "guest_name": "Updated Name",
+                "total_amount": "1500.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.guest_name, "Updated Name")
+        self.assertEqual(reservation.total_amount, Decimal("1500.00"))
+        self.assertEqual(reservation.paid_amount, Decimal("1000.00"))
+        self.assertEqual(reservation.payment_status, VenueReservation.PAYMENT_PARTIAL)
+
     def test_overpayment_is_rejected(self):
         reservation = VenueReservation.objects.create(
             club=self.club,
@@ -308,3 +341,94 @@ class VenueReservationTests(APITestCase):
         self.client.force_authenticate(self.cashier)
         response = self.client.get(reverse("venuereservation-list"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_expired_pending_reservation_is_auto_cancelled_on_list(self):
+        expired_start = timezone.now() - timedelta(hours=2)
+        reservation = VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Late Approval",
+            guest_phone="02111111111",
+            starts_at=expired_start,
+            ends_at=expired_start + timedelta(hours=3),
+            guest_count=20,
+            total_amount=Decimal("1500.00"),
+            paid_amount=Decimal("0.00"),
+            status=VenueReservation.STATUS_PENDING,
+            payment_status=VenueReservation.PAYMENT_UNPAID,
+            created_by=self.owner,
+        )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.get(reverse("venuereservation-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, VenueReservation.STATUS_CANCELLED)
+        self.assertIsNotNone(reservation.cancelled_at)
+        self.assertEqual(reservation.payment_status, VenueReservation.PAYMENT_REFUNDED)
+        self.assertEqual(response.data["results"][0]["status"], VenueReservation.STATUS_CANCELLED)
+
+    def test_cached_reservation_list_is_invalidated_when_pending_reservation_expires(self):
+        expired_start = timezone.now() - timedelta(hours=2)
+        reservation = VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Cached Pending",
+            guest_phone="02444444444",
+            starts_at=expired_start,
+            ends_at=expired_start + timedelta(hours=2),
+            guest_count=20,
+            total_amount=Decimal("1500.00"),
+            paid_amount=Decimal("0.00"),
+            status=VenueReservation.STATUS_PENDING,
+            payment_status=VenueReservation.PAYMENT_UNPAID,
+            created_by=self.owner,
+        )
+        self.client.force_authenticate(self.owner)
+
+        first_response = self.client.get(reverse("venuereservation-list"))
+        second_response = self.client.get(reverse("venuereservation-list"))
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        reservation.refresh_from_db()
+        self.assertEqual(reservation.status, VenueReservation.STATUS_CANCELLED)
+        self.assertEqual(second_response.data["results"][0]["status"], VenueReservation.STATUS_CANCELLED)
+
+    def test_dashboard_excludes_expired_pending_reservations_from_pending_count(self):
+        expired_start = timezone.now() - timedelta(hours=1)
+        VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Expired Pending",
+            guest_phone="02222222222",
+            starts_at=expired_start,
+            ends_at=expired_start + timedelta(hours=2),
+            guest_count=15,
+            total_amount=Decimal("900.00"),
+            paid_amount=Decimal("0.00"),
+            status=VenueReservation.STATUS_PENDING,
+            payment_status=VenueReservation.PAYMENT_UNPAID,
+            created_by=self.owner,
+        )
+        VenueReservation.objects.create(
+            club=self.club,
+            occasion_type=self.occasion_type,
+            guest_name="Future Pending",
+            guest_phone="02333333333",
+            starts_at=self.starts_at,
+            ends_at=self.ends_at,
+            guest_count=25,
+            total_amount=Decimal("1200.00"),
+            paid_amount=Decimal("0.00"),
+            status=VenueReservation.STATUS_PENDING,
+            payment_status=VenueReservation.PAYMENT_UNPAID,
+            created_by=self.owner,
+        )
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.get(reverse("dashboard-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pending_reservations_count"], 1)
