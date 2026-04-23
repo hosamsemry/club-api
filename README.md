@@ -86,6 +86,56 @@ celery -A management worker -l info
 celery -A management beat -l info
 ```
 
+## Docker
+
+The backend repo includes its own `docker-compose.yml` for the API, PostgreSQL, Redis, Celery worker, and Celery Beat.
+
+### Included Services
+
+- `backend`: Django API on `http://localhost:8000`
+- `postgres`: PostgreSQL 15 for the app database
+- `redis`: Redis 7 for cache and Celery broker/backend
+- `celery-worker`: background task worker
+- `celery-beat`: periodic task scheduler
+
+### First-Time Setup
+
+From the `api/` folder:
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Update `.env.docker` before sharing the setup outside local development, especially:
+
+- `SECRET_KEY`
+- `POSTGRES_PASSWORD`
+
+### Start
+
+From the `api/` folder:
+
+```bash
+docker compose up --build
+```
+
+The backend container runs Django migrations automatically on startup.
+
+### Stop
+
+From the `api/` folder:
+
+```bash
+docker compose down
+```
+
+### Notes
+
+- This compose file creates the shared Docker network `club-network`.
+- The frontend compose file in the sibling `club/` folder joins that existing network, so start the backend stack first.
+- Backend media files are mounted from `api/media`, and collected static files are mounted from `api/staticfiles`.
+- Celery worker and beat use the same image and environment file as the backend service.
+
 ## API Endpoints
 
 Base URL: `/api/`
