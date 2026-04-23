@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: club-postgres
+    environment:
+      POSTGRES_DB: club_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d club_management"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - club-network
+
+  redis:
+    image: redis:7
+    container_name: club-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - club-network
+
+  backend:
+    build:
+      context: ./
+    container_name: club-backend
+    env_file:
+      - ./.env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./media:/app/media
+      - ./staticfiles:/app/staticfiles
+    networks:
+      - club-network
+
+  celery-worker:
+    build:
+      context: ./
+    container_name: club-celery-worker
+    command: celery -A management worker -l info
+    env_file:
+      - ./.env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./media:/app/media
+      - ./staticfiles:/app/staticfiles
+    networks:
+      - club-network
+
+  celery-beat:
+    build:
+      context: ./
+    container_name: club-celery-beat
+    command: celery -A management beat -l info
+    env_file:
+      - ./.env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./media:/app/media
+      - ./staticfiles:/app/staticfiles
+    networks:
+      - club-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  club-network:
+    name: club-network
