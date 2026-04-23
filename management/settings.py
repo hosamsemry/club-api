@@ -5,6 +5,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_list(name, default=""):
+    value = os.getenv(name, default)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,9 +28,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_flag("DEBUG", default=True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = _env_list(
+    "ALLOWED_HOSTS",
+    default="localhost,127.0.0.1,backend",
+)
 
 
 # Application definition
@@ -108,13 +123,14 @@ MIDDLEWARE = [
 ]
 
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-]   
+CORS_ALLOWED_ORIGINS = _env_list(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1",
+)
 
-CORS_ALLOW_ALL_ORIGINS = True   
+CORS_ALLOW_ALL_ORIGINS = _env_flag("CORS_ALLOW_ALL_ORIGINS", default=True)
 
-CORS_ALLOW_CREDENTIALS = True   
+CORS_ALLOW_CREDENTIALS = _env_flag("CORS_ALLOW_CREDENTIALS", default=True)
 
 ROOT_URLCONF = 'management.urls'
 
@@ -187,6 +203,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
