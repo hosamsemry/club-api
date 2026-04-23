@@ -1,6 +1,7 @@
 .venv/
 env
 .env
+.env.docker
 __pycache__
 celerybeat-schedule
 media/
