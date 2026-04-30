@@ -12,7 +12,6 @@ from reporting.serializers import (
     TransactionRowSerializer,
     TransactionsQuerySerializer,
 )
-from reporting.services.daily_report_service import DailyReportService
 from reporting.services.export_service import ReportExportService
 from reporting.services.revenue_range_service import RevenueRangeService
 from reporting.services.transaction_history_service import UnifiedTransactionsService

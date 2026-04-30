@@ -7,7 +7,7 @@ from django.utils.crypto import get_random_string
 from rest_framework.exceptions import ValidationError
 
 from core.services.audit_service import AuditService
-from tickets.models import GateEntryDay, GateTicket, GateTicketSale, GateTicketType
+from tickets.models import GateEntryDay, GateTicket, GateTicketSale
 
 
 class GateTicketService:
