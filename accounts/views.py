@@ -1,4 +1,4 @@
-from rest_framework import permissions, status
+from rest_framework import permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django.contrib.auth import get_user_model
@@ -41,7 +41,7 @@ class RegisterView(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        refresh = RefreshToken.for_user(user)
+        refresh = EmailTokenObtainPairSerializer.get_token(user)
 
         return Response({
             "refresh": str(refresh),
@@ -60,6 +60,8 @@ class ClubUserViewSet(ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, RolePermission]
     required_roles = ["owner", "manager"]
     http_method_names = ["get", "post", "patch", "head", "options"]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["email", "username"]
 
     def get_queryset(self):
         return User.objects.filter(club=self.request.user.club).order_by("email")

@@ -54,6 +54,7 @@ class StockMovementViewSet(TenantModelViewSet):
             user=self.request.user,
             note=validated.get("note", ""),
         )
+        serializer.instance = movement
         club_id = self.request.user.club_id
 
         invalidate_stock_movement_cache(club_id)

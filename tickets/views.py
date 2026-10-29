@@ -6,6 +6,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
+from django.core.cache import cache
 
 from core.permissions import RolePermission
 from core.views import TenantModelViewSet
@@ -35,6 +36,13 @@ class GateTicketTypeViewSet(TenantModelViewSet):
     ordering = ["display_order", "name"]
     search_fields = ["name"]
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            self.required_roles = ["owner", "manager", "cashier", "staff"]
+        else:
+            self.required_roles = ["owner", "manager"]
+        return super().get_permissions()
+
     def perform_create(self, serializer):
         ticket_type = serializer.save(club=self.request.user.club)
         GateTicketService.log_ticket_type_created(ticket_type=ticket_type, user=self.request.user)
@@ -63,13 +71,21 @@ class GateEntryDayViewSet(TenantModelViewSet):
     ordering_fields = ["visit_date", "daily_capacity", "created_at"]
     ordering = ["-visit_date"]
 
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            self.required_roles = ["owner", "manager", "cashier", "staff"]
+        else:
+            self.required_roles = ["owner", "manager"]
+        return super().get_permissions()
+
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
         if user.is_authenticated and user.club_id:
+            club_today = GateTicketService._club_today(user.club)
             GateEntryDay.objects.filter(
                 club=user.club,
-                visit_date__lt=timezone.localdate(),
+                visit_date__lt=club_today,
                 is_open=True,
             ).update(is_open=False)
         return queryset.annotate(
@@ -129,6 +145,7 @@ class GateTicketSaleViewSet(TenantModelViewSet):
             user=request.user,
             **serializer.validated_data,
         )
+        cache.delete(f"dashboard_summary:{request.user.club_id}")
         output = GateTicketSaleReadSerializer(sale, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -153,7 +170,7 @@ class GateTicketSaleViewSet(TenantModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            target_date = timezone.localdate()
+            target_date = GateTicketService._club_today(request.user.club)
 
         qs = super().get_queryset().filter(
             visit_date=target_date,
@@ -197,6 +214,7 @@ class GateTicketViewSet(TenantModelViewSet):
         serializer = GateTicketCheckInSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         ticket = GateTicketService.check_in_ticket(ticket=ticket, user=request.user)
+        cache.delete(f"dashboard_summary:{request.user.club_id}")
         output = GateTicketReadSerializer(ticket, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_200_OK)
 
@@ -209,6 +227,7 @@ class GateTicketViewSet(TenantModelViewSet):
             user=request.user,
             code=serializer.validated_data["code"],
         )
+        cache.delete(f"dashboard_summary:{request.user.club_id}")
         output = GateTicketReadSerializer(ticket, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_200_OK)
 
@@ -222,6 +241,7 @@ class GateTicketViewSet(TenantModelViewSet):
             user=request.user,
             note=serializer.validated_data.get("note", ""),
         )
+        cache.delete(f"dashboard_summary:{request.user.club_id}")
         output = GateTicketReadSerializer(ticket, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_200_OK)
 

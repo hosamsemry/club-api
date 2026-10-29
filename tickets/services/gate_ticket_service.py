@@ -136,15 +136,20 @@ class GateTicketService:
         )
 
         created_tickets = []
+        used_codes = set()
         for item in items:
             for _ in range(item["quantity"]):
+                code = GateTicketService._generate_code()
+                while code in used_codes:
+                    code = GateTicketService._generate_code()
+                used_codes.add(code)
                 created_tickets.append(
                     GateTicket(
                         club=club,
                         sale=sale,
                         ticket_type=item["ticket_type"],
                         visit_date=visit_date,
-                        code=GateTicketService._generate_code(),
+                        code=code,
                         status=GateTicket.STATUS_ISSUED,
                     )
                 )
@@ -220,6 +225,9 @@ class GateTicketService:
         if not remaining_active:
             ticket.sale.status = GateTicketSale.STATUS_VOIDED
             ticket.sale.save(update_fields=["status", "updated_at"])
+        else:
+            ticket.sale.total_amount = max(Decimal("0.00"), ticket.sale.total_amount - ticket.ticket_type.price)
+            ticket.sale.save(update_fields=["total_amount", "updated_at"])
 
         AuditService.log(
             action="gate_ticket_voided",

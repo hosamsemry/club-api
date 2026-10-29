@@ -32,6 +32,13 @@ class ProductSerializer(serializers.ModelSerializer):
             "is_best_seller",
         ]
 
+    def validate_category(self, value):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated and request.user.club_id:
+            if value.club_id != request.user.club_id:
+                raise serializers.ValidationError("Category does not belong to your club.")
+        return value
+
     def validate_cost_price(self, value):
         if value is not None and value <= 0:
             raise serializers.ValidationError("Cost price must be greater than zero.")
@@ -54,6 +61,13 @@ class StockMovementSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockMovement
         fields = ["id", "product", "product_name", "movement_type", "quantity", "direction", "note", "created_at"]
+
+    def validate_product(self, value):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated and request.user.club_id:
+            if value.club_id != request.user.club_id:
+                raise serializers.ValidationError("Product does not belong to your club.")
+        return value
 
     def validate(self, attrs):
         movement_type = attrs.get("movement_type")

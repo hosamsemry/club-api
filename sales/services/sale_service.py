@@ -1,7 +1,7 @@
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
-from rest_framework.exceptions import ValidationError, PermissionDenied
+from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
 from inventory.models import Product
 from inventory.services.stock_service import StockService
 from sales.models import Sale, SaleItem
@@ -33,7 +33,7 @@ class SaleService:
 
         products = (
             Product.objects.select_for_update()
-            .filter(club=club, id__in=product_ids)
+            .filter(club=club, is_active=True, id__in=product_ids)
             .order_by("id")
         )
         products_by_id = {p.id: p for p in products}
@@ -147,12 +147,15 @@ class SaleService:
         if user.role not in {"owner", "manager"}:
             raise PermissionDenied("Only owner/manager can refund sales.")
 
-        sale = (
-            Sale.objects.select_for_update()
-            .select_related("club")
-            .prefetch_related("items__product")
-            .get(id=sale_id, club=club)
-        )
+        try:
+            sale = (
+                Sale.objects.select_for_update()
+                .select_related("club")
+                .prefetch_related("items__product")
+                .get(id=sale_id, club=club)
+            )
+        except Sale.DoesNotExist:
+            raise NotFound("Sale not found.")
 
         if sale.status != "completed":
             raise ValidationError({"detail": f"Only completed sales can be refunded. Current: {sale.status}."})

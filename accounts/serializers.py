@@ -13,7 +13,8 @@ class RegisterSerializer(serializers.Serializer):
     username = serializers.CharField()
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
 
@@ -53,6 +54,7 @@ class ClubUserReadSerializer(serializers.ModelSerializer):
 
 class ClubUserCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES, required=True, allow_blank=False)
 
     class Meta:
         model = User
@@ -65,7 +67,8 @@ class ClubUserCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
+        value = value.strip().lower()
+        if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
 
@@ -80,6 +83,8 @@ class ClubUserCreateSerializer(serializers.ModelSerializer):
 
 
 class ClubUserUpdateSerializer(serializers.ModelSerializer):
+    role = serializers.ChoiceField(choices=User.ROLE_CHOICES, required=False, allow_blank=False)
+
     class Meta:
         model = User
         fields = ["role", "is_active"]
@@ -91,7 +96,10 @@ class ClubUserUpdateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        requesting_user = self.context["request"].user
         # Prevent a user from deactivating or changing their own role
-        if self.instance == self.context["request"].user:
+        if self.instance == requesting_user:
             raise serializers.ValidationError("You cannot modify your own account.")
+        if requesting_user.role == "manager" and self.instance.role in ("owner", "manager"):
+            raise serializers.ValidationError("Managers cannot modify Owner or Manager accounts.")
         return attrs

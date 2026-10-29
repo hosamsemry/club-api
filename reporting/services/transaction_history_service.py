@@ -51,45 +51,76 @@ class UnifiedTransactionsService:
 
         rows = []
         for sale in sales:
-            is_refund_event = (
+            created_in_window = utc_start <= sale.created_at < utc_end
+            refunded_in_window = (
                 sale.status == "refunded"
                 and sale.refunded_at is not None
                 and utc_start <= sale.refunded_at < utc_end
             )
-            activity_at = sale.refunded_at if is_refund_event else sale.created_at
+
             gross_amount = cls._money(sale.total_amount)
             cost_total = cls._cost_total(sale.items.all())
-            refund_amount = gross_amount if is_refund_event else Decimal("0.00")
             profit_amount = gross_amount - cost_total
-            if sale.status == "cancelled":
-                net_amount = Decimal("0.00")
-            elif is_refund_event:
-                net_amount = -profit_amount
-            else:
-                net_amount = profit_amount
 
             item_parts = [f"{item.quantity}× {item.product.name}" for item in sale.items.all()]
             summary = ", ".join(item_parts[:2]) if item_parts else "Product sale"
             if len(item_parts) > 2:
                 summary = f"{summary} +{len(item_parts) - 2} more"
 
-            rows.append(
-                {
-                    "id": f"products-{sale.id}",
-                    "source": "products",
-                    "transaction_id": sale.id,
-                    "reference": f"SALE-{sale.id}",
-                    "activity_at": activity_at,
-                    "status": sale.status,
-                    "customer_name": "",
-                    "customer_phone": "",
-                    "created_by_email": sale.created_by.email if sale.created_by_id else "",
-                    "gross_amount": gross_amount,
-                    "refund_amount": refund_amount,
-                    "net_amount": net_amount,
-                    "summary": summary,
-                }
-            )
+            if created_in_window and refunded_in_window:
+                rows.append(
+                    {
+                        "id": f"products-{sale.id}",
+                        "source": "products",
+                        "transaction_id": sale.id,
+                        "reference": f"SALE-{sale.id}",
+                        "activity_at": sale.refunded_at,
+                        "status": "refunded",
+                        "customer_name": "",
+                        "customer_phone": "",
+                        "created_by_email": sale.created_by.email if sale.created_by_id else "",
+                        "gross_amount": gross_amount,
+                        "refund_amount": gross_amount,
+                        "net_amount": Decimal("0.00"),
+                        "summary": summary,
+                    }
+                )
+            elif refunded_in_window:
+                rows.append(
+                    {
+                        "id": f"products-{sale.id}",
+                        "source": "products",
+                        "transaction_id": sale.id,
+                        "reference": f"SALE-{sale.id}",
+                        "activity_at": sale.refunded_at,
+                        "status": "refunded",
+                        "customer_name": "",
+                        "customer_phone": "",
+                        "created_by_email": sale.created_by.email if sale.created_by_id else "",
+                        "gross_amount": gross_amount,
+                        "refund_amount": gross_amount,
+                        "net_amount": -profit_amount,
+                        "summary": summary,
+                    }
+                )
+            elif created_in_window:
+                rows.append(
+                    {
+                        "id": f"products-{sale.id}",
+                        "source": "products",
+                        "transaction_id": sale.id,
+                        "reference": f"SALE-{sale.id}",
+                        "activity_at": sale.created_at,
+                        "status": "cancelled" if sale.status == "cancelled" else "completed",
+                        "customer_name": "",
+                        "customer_phone": "",
+                        "created_by_email": sale.created_by.email if sale.created_by_id else "",
+                        "gross_amount": gross_amount,
+                        "refund_amount": Decimal("0.00"),
+                        "net_amount": Decimal("0.00") if sale.status == "cancelled" else profit_amount,
+                        "summary": summary,
+                    }
+                )
         return rows
 
     @classmethod
@@ -147,11 +178,11 @@ class UnifiedTransactionsService:
                 and utc_start <= reservation.refunded_at < utc_end
             )
             activity_at = reservation.refunded_at if is_refund_event else reservation.created_at
-            gross_amount = cls._money(reservation.paid_amount)
+            gross_amount = cls._money(reservation.paid_amount + reservation.refunded_amount)
             refund_amount = cls._money(reservation.refunded_amount)
-            net_amount = gross_amount - refund_amount
+            net_amount = cls._money(reservation.paid_amount)
 
-            if is_refund_event or reservation.payment_status == VenueReservation.PAYMENT_REFUNDED:
+            if is_refund_event or (reservation.refunded_amount > Decimal("0.00")):
                 status = "refunded"
             elif reservation.status == VenueReservation.STATUS_CANCELLED:
                 status = "cancelled"

@@ -18,6 +18,11 @@ class BaseModel(models.Model):
     objects = ActiveManager()
     all_objects = models.Manager()
 
+    def delete(self, *args, **kwargs):
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["is_deleted", "deleted_at", "updated_at"])
+
     class Meta:
         abstract = True
 
@@ -30,16 +35,10 @@ class Club(BaseModel):
 
     def __str__(self):
         return self.name
-    
-    def delete(self, *args, **kwargs):
-        self.is_deleted = True
-        self.deleted_at = timezone.now()
-        self.save()
-
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            base_slug = slugify(self.name)
+            base_slug = slugify(self.name) or "club"
             slug = base_slug
             while Club.all_objects.filter(slug=slug).exists():
                 slug = f"{base_slug}-{get_random_string(4)}"

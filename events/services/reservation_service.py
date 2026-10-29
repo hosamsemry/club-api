@@ -69,11 +69,11 @@ class ReservationService:
             raise ValidationError({"occasion_type": "Occasion type is inactive."})
 
     @staticmethod
-    def _validate_time_range(*, starts_at, ends_at):
+    def _validate_time_range(*, starts_at, ends_at, current_starts_at=None, current_ends_at=None):
         now = timezone.now()
-        if starts_at < now:
+        if (current_starts_at is None or starts_at != current_starts_at) and starts_at < now:
             raise ValidationError({"starts_at": "Start time cannot be in the past."})
-        if ends_at < now:
+        if (current_ends_at is None or ends_at != current_ends_at) and ends_at < now:
             raise ValidationError({"ends_at": "End time cannot be in the past."})
         if starts_at >= ends_at:
             raise ValidationError({"ends_at": "End time must be after start time."})
@@ -227,7 +227,12 @@ class ReservationService:
             raise ValidationError({"detail": "Cancelled reservations cannot be edited."})
 
         ReservationService._validate_occasion_type(club=reservation.club, occasion_type=occasion_type)
-        ReservationService._validate_time_range(starts_at=starts_at, ends_at=ends_at)
+        ReservationService._validate_time_range(
+            starts_at=starts_at,
+            ends_at=ends_at,
+            current_starts_at=reservation.starts_at,
+            current_ends_at=reservation.ends_at,
+        )
         ReservationService._validate_guest_count(guest_count=guest_count)
         ReservationService._validate_amounts(
             total_amount=Decimal(total_amount),

@@ -1,3 +1,5 @@
+import datetime
+
 from django.http import FileResponse, HttpResponse
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -30,22 +32,34 @@ class DailyClubReportViewSet(viewsets.ReadOnlyModelViewSet):
 
         report_date = self.request.query_params.get("report_date")
         if report_date:
-            queryset = queryset.filter(report_date=report_date)
+            try:
+                parsed_report_date = datetime.date.fromisoformat(report_date)
+                queryset = queryset.filter(report_date=parsed_report_date)
+            except (ValueError, TypeError):
+                return queryset.none()
 
         start_date = self.request.query_params.get("start_date")
         if start_date:
-            queryset = queryset.filter(report_date__gte=start_date)
+            try:
+                parsed_start_date = datetime.date.fromisoformat(start_date)
+                queryset = queryset.filter(report_date__gte=parsed_start_date)
+            except (ValueError, TypeError):
+                return queryset.none()
 
         end_date = self.request.query_params.get("end_date")
         if end_date:
-            queryset = queryset.filter(report_date__lte=end_date)
+            try:
+                parsed_end_date = datetime.date.fromisoformat(end_date)
+                queryset = queryset.filter(report_date__lte=parsed_end_date)
+            except (ValueError, TypeError):
+                return queryset.none()
 
         return queryset.order_by("-report_date")
 
     @action(detail=True, methods=["get"], url_path="export/csv")
     def export_csv(self, request, pk=None):
         report = self.get_object()
-        if not report.csv_file:
+        if not report.csv_file or not report.csv_file.storage.exists(report.csv_file.name):
             report = ReportExportService.generate_csv(report=report)
 
         return FileResponse(

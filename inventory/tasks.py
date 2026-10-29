@@ -12,7 +12,7 @@ def update_best_sellers():
     products = Product.objects.annotate(
         total=Sum(
             "saleitem__quantity",
-            filter=Q(saleitem__sale__created_at__gte=last_30_days)
+            filter=Q(saleitem__sale__created_at__gte=last_30_days, saleitem__sale__status="completed")
         )
     )
 

@@ -1,8 +1,12 @@
+import logging
+
 from celery import shared_task
 from django.conf import settings
 
 from clubs.models import Club
 from reporting.services.daily_report_service import DailyReportService
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
@@ -11,15 +15,18 @@ def schedule_daily_report_generation():
     clubs = Club.objects.filter(is_active=True).only("id", "timezone", "is_active")
 
     for club in clubs:
-        report_date = DailyReportService.get_pending_report_date(
-            club=club,
-            cutoff_minutes=settings.CELERY_REPORT_GENERATION_CUTOFF_MINUTES,
-        )
-        if report_date is None:
-            continue
+        try:
+            report_date = DailyReportService.get_pending_report_date(
+                club=club,
+                cutoff_minutes=settings.CELERY_REPORT_GENERATION_CUTOFF_MINUTES,
+            )
+            if report_date is None:
+                continue
 
-        generate_daily_report_for_club.delay(club.id, report_date.isoformat())
-        dispatched += 1
+            generate_daily_report_for_club.delay(club.id, report_date.isoformat())
+            dispatched += 1
+        except Exception:
+            logger.exception("Failed to schedule daily report generation for club %s", club.id)
 
     return dispatched
 

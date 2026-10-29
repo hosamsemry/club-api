@@ -1,3 +1,6 @@
+import datetime
+from zoneinfo import ZoneInfo
+from django.db.models.functions import Greatest
 from inventory.models import Product
 
 from django.core.cache import cache
@@ -29,6 +32,9 @@ class SaleViewSet(TenantModelViewSet):
     ordering = ["-created_at"]
     search_fields = ["created_by__email", "items__product__name", "items__product__sku"]
 
+    def get_queryset(self):
+        return super().get_queryset().distinct()
+
     def get_serializer_class(self):
         if self.action == "create":
             return SaleCreateSerializer
@@ -58,6 +64,7 @@ class SaleViewSet(TenantModelViewSet):
         output = SaleReadSerializer(sale, context=self.get_serializer_context())
         club_id = request.user.club_id
         cache.delete_pattern(f"products:{club_id}:*")
+        cache.delete_pattern(f"stock_movements:{club_id}:*")
         cache.delete(f"dashboard_summary:{club_id}")
         return Response(output.data, status=status.HTTP_201_CREATED)
 
@@ -80,28 +87,42 @@ class SaleViewSet(TenantModelViewSet):
             note=request.data.get("note", ""),
         )
 
+        for item in sale.items.all():
+            qty = item.quantity
+            Product.objects.filter(pk=item.product_id).update(
+                total_sold_30d=Greatest(0, F("total_sold_30d") - qty),
+            )
+
+        club_id = request.user.club_id
+        cache.delete_pattern(f"products:{club_id}:*")
+        cache.delete_pattern(f"stock_movements:{club_id}:*")
+        cache.delete(f"dashboard_summary:{club_id}")
+
         output = SaleReadSerializer(sale, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"], url_path="daily-summary")
     def daily_summary(self, request):
-
         date_str = request.query_params.get("date")
+        club_timezone = ZoneInfo(request.user.club.timezone or "UTC") if (request.user and request.user.club) else ZoneInfo("UTC")
         if date_str:
             try:
-                target_date = timezone.datetime.fromisoformat(date_str).date()
+                target_date = datetime.date.fromisoformat(date_str)
             except ValueError:
                 return Response(
                     {"detail": "Invalid date format. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            target_date = timezone.localdate()
+            target_date = timezone.now().astimezone(club_timezone).date()
+
+        day_start = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=club_timezone)
+        day_end = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=club_timezone)
 
         qs = (
             super()
             .get_queryset()
-            .filter(created_at__date=target_date, status="completed")
+            .filter(created_at__gte=day_start, created_at__lte=day_end, status="completed")
         )
 
         totals = qs.aggregate(
@@ -137,22 +158,27 @@ class SaleViewSet(TenantModelViewSet):
             )
 
         date_str = request.query_params.get("date")
+        club_timezone = ZoneInfo(request.user.club.timezone or "UTC") if (request.user and request.user.club) else ZoneInfo("UTC")
         if date_str:
             try:
-                target_date = timezone.datetime.fromisoformat(date_str).date()
+                target_date = datetime.date.fromisoformat(date_str)
             except ValueError:
                 return Response(
                     {"detail": "Invalid date format. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            target_date = timezone.localdate()
+            target_date = timezone.now().astimezone(club_timezone).date()
+
+        day_start = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=club_timezone)
+        day_end = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=club_timezone)
 
         sales_qs = (
             super()
             .get_queryset()
             .filter(
-                created_at__date=target_date,
+                created_at__gte=day_start,
+                created_at__lte=day_end,
                 status="completed",
             )
         )
@@ -194,22 +220,27 @@ class SaleViewSet(TenantModelViewSet):
             )
 
         date_str = request.query_params.get("date")
+        club_timezone = ZoneInfo(request.user.club.timezone or "UTC") if (request.user and request.user.club) else ZoneInfo("UTC")
         if date_str:
             try:
-                target_date = timezone.datetime.fromisoformat(date_str).date()
+                target_date = datetime.date.fromisoformat(date_str)
             except ValueError:
                 return Response(
                     {"detail": "Invalid date format. Use YYYY-MM-DD."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            target_date = timezone.localdate()
+            target_date = timezone.now().astimezone(club_timezone).date()
+
+        day_start = datetime.datetime.combine(target_date, datetime.time.min, tzinfo=club_timezone)
+        day_end = datetime.datetime.combine(target_date, datetime.time.max, tzinfo=club_timezone)
 
         sales_qs = (
             super()
             .get_queryset()
             .filter(
-                created_at__date=target_date,
+                created_at__gte=day_start,
+                created_at__lte=day_end,
                 status="completed",
             )
         )

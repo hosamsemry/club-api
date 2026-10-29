@@ -57,17 +57,28 @@ class VenueReservationWriteSerializer(serializers.Serializer):
     )
     notes = serializers.CharField(required=False, allow_blank=True)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and hasattr(request.user, "club") and request.user.club:
+            self.fields["occasion_type"].queryset = OccasionType.objects.filter(club=request.user.club)
+
     def validate(self, attrs):
         now = timezone.now()
-        starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
-        ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
-        total_amount = attrs.get("total_amount", getattr(self.instance, "total_amount", None))
-        paid_amount = getattr(self.instance, "paid_amount", Decimal("0.00"))
+        instance = getattr(self, "instance", None)
+        starts_at = attrs.get("starts_at", getattr(instance, "starts_at", None))
+        ends_at = attrs.get("ends_at", getattr(instance, "ends_at", None))
+        total_amount = attrs.get("total_amount", getattr(instance, "total_amount", None))
+        paid_amount = getattr(instance, "paid_amount", Decimal("0.00"))
 
-        if starts_at and starts_at < now:
-            raise serializers.ValidationError({"starts_at": "Start time cannot be in the past."})
-        if ends_at and ends_at < now:
-            raise serializers.ValidationError({"ends_at": "End time cannot be in the past."})
+        if starts_at:
+            if instance is None or instance.starts_at != starts_at:
+                if starts_at < now:
+                    raise serializers.ValidationError({"starts_at": "Start time cannot be in the past."})
+        if ends_at:
+            if instance is None or instance.ends_at != ends_at:
+                if ends_at < now:
+                    raise serializers.ValidationError({"ends_at": "End time cannot be in the past."})
         if starts_at and ends_at and starts_at >= ends_at:
             raise serializers.ValidationError({"ends_at": "End time must be after start time."})
 
