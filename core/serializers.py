@@ -39,4 +39,7 @@ class DashboardSummarySerializer(serializers.Serializer):
     today_ticket_sales_count = serializers.IntegerField()
     today_ticket_revenue = serializers.DecimalField(max_digits=12, decimal_places=2)
     today_checked_in_tickets_count = serializers.IntegerField()
+    today_capacity = serializers.IntegerField(allow_null=True, required=False)
+    today_gate_is_open = serializers.BooleanField(required=False, default=True)
+    today_total_tickets_count = serializers.IntegerField(required=False, default=0)
     recent_activity = DashboardRecentActivitySerializer(many=True)

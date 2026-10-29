@@ -1,3 +1,4 @@
+import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from django.db.models import Sum
@@ -17,7 +18,7 @@ from core.serializers import (
 from events.models import VenueReservation
 from events.services.reservation_service import ReservationService
 from inventory.models import LowStockAlert, Product
-from tickets.models import GateTicket, GateTicketSale
+from tickets.models import GateEntryDay, GateTicket, GateTicketSale
 
 class TenantModelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -62,15 +63,26 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet, TenantModelViewSet):
 
         user_id = self.request.query_params.get("user")
         if user_id:
-            queryset = queryset.filter(user_id=user_id)
+            try:
+                queryset = queryset.filter(user_id=int(user_id))
+            except (ValueError, TypeError):
+                return AuditLog.objects.none()
 
         start_date = self.request.query_params.get("start_date")
         if start_date:
-            queryset = queryset.filter(created_at__date__gte=start_date)
+            try:
+                datetime.date.fromisoformat(start_date)
+                queryset = queryset.filter(created_at__date__gte=start_date)
+            except ValueError:
+                pass
 
         end_date = self.request.query_params.get("end_date")
         if end_date:
-            queryset = queryset.filter(created_at__date__lte=end_date)
+            try:
+                datetime.date.fromisoformat(end_date)
+                queryset = queryset.filter(created_at__date__lte=end_date)
+            except ValueError:
+                pass
 
         return queryset
 
@@ -81,18 +93,26 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
     required_roles = ["owner", "manager"]
 
     def list(self, request, *args, **kwargs):
-        cache_key = f"dashboard_summary:{request.user.club_id}"
-        cached_data = cache.get(cache_key)
-        if cached_data is not None:
-            return Response(cached_data)
         user = request.user
         if not user.is_authenticated or not user.club_id:
             return Response({"detail": "Unauthorized"}, status=401)
 
+        cache_key = f"dashboard_summary:{request.user.club_id}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
         club = user.club
         ReservationService.cancel_expired_pending_reservations(club=club)
-        club_timezone = ZoneInfo(club.timezone or "UTC")
-        today = timezone.now().astimezone(club_timezone).date()
+        try:
+            club_timezone = ZoneInfo(club.timezone or "UTC")
+        except Exception:
+            club_timezone = ZoneInfo("UTC")
+
+        now_local = timezone.now().astimezone(club_timezone)
+        today = now_local.date()
+        today_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=club_timezone)
+        today_end = datetime.datetime.combine(today, datetime.time.max, tzinfo=club_timezone)
 
         today_ticket_sales = GateTicketSale.objects.filter(
             club=club,
@@ -104,6 +124,14 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
             or Decimal("0.00")
         )
 
+        entry_day = GateEntryDay.objects.filter(club=club, visit_date=today).first()
+        today_capacity = entry_day.daily_capacity if entry_day else None
+        today_gate_is_open = entry_day.is_open if entry_day else True
+        today_total_tickets_count = GateTicket.objects.filter(
+            club=club,
+            visit_date=today,
+        ).exclude(status=GateTicket.STATUS_VOIDED).count()
+
         data = {
             "total_products": Product.objects.filter(club=club, is_active=True).count(),
             "low_stock_alert_count": LowStockAlert.objects.filter(
@@ -112,7 +140,8 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
             ).count(),
             "today_reservations_count": VenueReservation.objects.filter(
                 club=club,
-                starts_at__date=today,
+                starts_at__gte=today_start,
+                starts_at__lte=today_end,
             ).exclude(status=VenueReservation.STATUS_CANCELLED).count(),
             "pending_reservations_count": VenueReservation.objects.filter(
                 club=club,
@@ -125,6 +154,9 @@ class DashboardViewSet(viewsets.ReadOnlyModelViewSet):
                 visit_date=today,
                 status=GateTicket.STATUS_CHECKED_IN,
             ).count(),
+            "today_capacity": today_capacity,
+            "today_gate_is_open": today_gate_is_open,
+            "today_total_tickets_count": today_total_tickets_count,
             "recent_activity": AuditLog.objects.filter(club=club)
             .order_by("-created_at")[:5]
             .values("action", "user__email", "created_at"),
